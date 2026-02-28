@@ -9,3 +9,8 @@
 | MALLOC_ALIGNMENT  | `2 * SIZE_SZ` | 8 bytes | 16 bytes | 8 bytes |
 | MALLOC_ALIGN_MASK | `(MALLOC_ALIGNMENT - 1)` | 7 bytes | 15 bytes | 7 bytes |
 | MINSIZE | | 16 bytes | 32 bytes |
+| NBINS | 128 |
+| NSMALLBINS | 64 |
+| SMALLBIN_WIDTH      | MALLOC_ALIGNMENT | 8 | 16 |
+| SMALLBIN_CORRECTION | (MALLOC_ALIGNMENT > CHUNK_HDR_SZ) | 0 | 0 |
+| MIN_LARGE_SIZE      | ((NSMALLBINS-SMALLBIN_CORRECTION) * SMALLBIN_WIDTH) | 64*8 = 512 bytes | 64*16 = 1024 bytes |

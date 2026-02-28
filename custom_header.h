@@ -783,5 +783,26 @@ static size_t musable (void *mem);
 #endif
 
 #define MMAP(addr, size, prot, flags) \
- __mmap((addr), (size), (prot), (flags)|MAP_ANONYMOUS|MAP_PRIVATE, -1, 0)
+  __mmap((addr), (size), (prot), (flags)|MAP_ANONYMOUS|MAP_PRIVATE, -1, 0)
 
+
+/*
+  `ATTEMPT_TRIMMING_THRESHOLD` is the size of a chunk in free() 
+  that may attempt trimming of an arena's heap.
+  - This is a heuristic, so the exact value should not matter too much.
+  - It is defined at half the default trim threshold as a compromise 
+    heuristic to only attempt trimming if it is likely to release a 
+    significant amount of memory.
+*/
+#define ATTEMPT_TRIMMING_THRESHOLD    65536UL
+
+/*
+  NONCONTIGUOUS_BIT indicates that MORECORE does not return contiguous
+  regions.
+  - Otherwise, contiguity is exploited in merging together, when 
+    possible, results from consecutive MORECORE calls.
+
+  The initial value comes from MORECORE_CONTIGUOUS, but is changed 
+  dynamically if mmap is ever used as an sbrk substitute.
+*/
+#define NONCONTIGUOUS_BIT    2U
