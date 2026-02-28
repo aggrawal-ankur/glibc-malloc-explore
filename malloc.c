@@ -1501,16 +1501,17 @@ sysmalloc(INTERNAL_SIZE_T nb, mstate av)
 
 
 /*
-   systrim is an inverse of sorts to sysmalloc.  It gives memory back
-   to the system (via negative arguments to sbrk) if there is unused
-   memory at the `high' end of the malloc pool. It is called
-   automatically by free() when top space exceeds the trim
-   threshold. It is also called by the public malloc_trim routine.  It
-   returns 1 if it actually released any memory, else 0.
+  systrim is an inverse of sorts to sysmalloc.
+  - It gives memory back to the system (via negative args 
+    to sbrk) if there is unused memory at the `high` end 
+    of the malloc pool.
+  - It is called automatically by free() when top space 
+    exceeds the trim threshold.
+  - It is also called by the public malloc_trim routine. It
+    returns 1 if it actually released any memory, else 0.
  */
 
-static int
-systrim (size_t pad, mstate av)
+static int systrim (size_t pad, mstate av)
 {
   long top_size;         /* Amount of top-most memory */
   long extra;            /* Amount to release */
@@ -1519,9 +1520,9 @@ systrim (size_t pad, mstate av)
   char *new_brk;         /* address returned by post-check sbrk call */
   long top_area;
 
-  top_size = chunksize (av->top);
-
+  top_size = chunksize(av->top);
   top_area = top_size - MINSIZE - 1;
+
   if (top_area <= pad)
     return 0;
 
@@ -1535,70 +1536,77 @@ systrim (size_t pad, mstate av)
     return 0;
 
   /*
-     Only proceed if end of memory is where we last set it.
-     This avoids problems if there were foreign sbrk calls.
-   */
+    Only proceed if the end of memory is where we last set it.
+    This avoids problems if there were foreign sbrk calls.
+  */
   current_brk = (char *) (MORECORE (0));
-  if (current_brk == (char *) (av->top) + top_size)
-    {
-      /*
-         Attempt to release memory. We ignore MORECORE return value,
-         and instead call again to find out where new end of memory is.
-         This avoids problems if first call releases less than we asked,
-         of if failure somehow altered brk value. (We could still
-         encounter problems if it altered brk in some very bad way,
-         but the only thing we can do is adjust anyway, which will cause
-         some downstream failure.)
-       */
+  if (current_brk == (char *)(av->top) + top_size){
+    /*
+        Attempt to release memory. We ignore MORECORE return value,
+        and instead call again to find out where new end of memory is.
+        This avoids problems if first call releases less than we asked,
+        of if failure somehow altered brk value. (We could still
+        encounter problems if it altered brk in some very bad way,
+        but the only thing we can do is adjust anyway, which will cause
+        some downstream failure.)
+      */
 
-      MORECORE (-extra);
-      new_brk = (char *) (MORECORE (0));
+    MORECORE (-extra);
+    new_brk = (char *) (MORECORE (0));
 
-      LIBC_PROBE (memory_sbrk_less, 2, new_brk, extra);
+    LIBC_PROBE (memory_sbrk_less, 2, new_brk, extra);
 
-      if (new_brk != (char *) MORECORE_FAILURE)
-        {
-          released = (long) (current_brk - new_brk);
+    if (new_brk != (char *) MORECORE_FAILURE){
+      released = (long) (current_brk - new_brk);
 
-          if (released != 0)
-            {
-              /* Success. Adjust top. */
-              av->system_mem -= released;
-              set_head (av->top, (top_size - released) | PREV_INUSE);
-              check_malloc_state (av);
-              return 1;
-            }
-        }
+      if (released != 0){
+        /* Success. Adjust top. */
+        av->system_mem -= released;
+        set_head(
+          av->top, 
+          (top_size - released) | PREV_INUSE
+        );
+        check_malloc_state (av);
+        return 1;
+      }
     }
+  }
   return 0;
 }
 
-static void
-munmap_chunk (mchunkptr p)
-{
-  size_t pagesize = GLRO (dl_pagesize);
+static void munmap_chunk (mchunkptr p){
+  size_t pagesize = GLRO(dl_pagesize);
 
-  assert (chunk_is_mmapped (p));
+  assert(chunk_is_mmapped(p));
 
-  uintptr_t mem = (uintptr_t) chunk2mem (p);
+  uintptr_t mem = (uintptr_t)chunk2mem(p);
   uintptr_t block = mmap_base (p);
   size_t total_size = mmap_size (p);
-  /* Unfortunately we have to do the compilers job by hand here.  Normally
-     we would test BLOCK and TOTAL-SIZE separately for compliance with the
-     page size.  But gcc does not recognize the optimization possibility
-     (in the moment at least) so we combine the two values into one before
-     the bit test.  */
-  if (__glibc_unlikely ((block | total_size) & (pagesize - 1)) != 0
-      || __glibc_unlikely (!powerof2 (mem & (pagesize - 1))))
+
+  /* 
+    Unfortunately we have to do the compilers job by hand here.
+    - Normally we would test BLOCK and TOTAL-SIZE separately 
+      for compliance with the page size.
+    - But gcc does not recognize the optimization possibility
+     (in the moment at least) so we combine the two values into 
+     one before the bit test.
+  */
+  if (
+    (__glibc_unlikely ((block | total_size) & (pagesize - 1)) != 0) || 
+    __glibc_unlikely(!powerof2(mem & (pagesize-1)))
+  ){
     malloc_printerr ("munmap_chunk(): invalid pointer");
+  }
 
-  atomic_fetch_add_relaxed (&mp_.n_mmaps, -1);
-  atomic_fetch_add_relaxed (&mp_.mmapped_mem, -total_size);
+  atomic_fetch_add_relaxed(&mp_.n_mmaps, -1);
+  atomic_fetch_add_relaxed(&mp_.mmapped_mem, -total_size);
 
-  /* If munmap failed the process virtual memory address space is in a
-     bad shape.  Just leave the block hanging around, the process will
-     terminate shortly anyway since not much can be done.  */
-  __munmap ((char *) block, total_size);
+  /*
+    If munmap failed the process virtual memory address space is in 
+    a bad shape. Just leave the block hanging around, the process 
+    will terminate shortly anyway since not much can be done.
+  */
+  __munmap((char*) block, total_size);
 }
 
 #if HAVE_MREMAP
@@ -2560,12 +2568,9 @@ __libc_calloc (size_t n, size_t elem_size)
 }
 #endif /* IS_IN (libc) */
 
-/*
-   ------------------------------ malloc ------------------------------
- */
+/* ------------------------------ malloc ------------------------------ */
 
-static void *
-_int_malloc (mstate av, size_t bytes)
+static void* _int_malloc (mstate av, size_t bytes)
 {
   INTERNAL_SIZE_T nb;               /* normalized request size */
   unsigned int idx;                 /* associated bin index */
@@ -2586,537 +2591,587 @@ _int_malloc (mstate av, size_t bytes)
   mchunkptr bck;                    /* misc temp for linking */
 
   /*
-     Convert request size to internal form by adding SIZE_SZ bytes
-     overhead plus possibly more to obtain necessary alignment and/or
-     to obtain a size of at least MINSIZE, the smallest allocatable
-     size. Also, checked_request2size returns false for request sizes
-     that are so large that they wrap around zero when padded and
-     aligned.
-   */
+    Convert request size to internal form by adding SIZE_SZ bytes
+    overhead plus possibly more to obtain necessary alignment and/or
+    to obtain a size of at least MINSIZE, the smallest allocatable
+    size. Also, checked_request2size returns false for request sizes
+    that are so large that they wrap around zero when padded and
+    aligned.
+  */
+  if (bytes > PTRDIFF_MAX){
+    __set_errno (ENOMEM);
+    return NULL;
+  }
+  nb = checked_request2size(bytes);
 
-  if (bytes > PTRDIFF_MAX)
-    {
-      __set_errno (ENOMEM);
-      return NULL;
+  /*
+    There are no usable arenas.
+    Fall back to sysmalloc to get a chunk from mmap.
+  */
+  if (__glibc_unlikely (av == NULL)){
+    void *p = sysmalloc (nb, av);
+    if (p != NULL)
+      alloc_perturb (p, bytes);
+    return p;
     }
-  nb = checked_request2size (bytes);
 
-  /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
-     mmap.  */
-  if (__glibc_unlikely (av == NULL))
-    {
-      void *p = sysmalloc (nb, av);
-      if (p != NULL)
-	alloc_perturb (p, bytes);
+  /*
+    If a small request, check regular bin.
+    - Since "smallbins" hold one size each, no searching 
+      within bins is necessary.
+    - For a large request, we need to wait until unsorted 
+      chunks are processed to find best fit. But for small 
+      ones, fits are exact anyway, so we can check now, 
+      which is faster.
+  */
+
+  if (in_smallbin_range(nb)){
+    idx = smallbin_index(nb);
+    bin = bin_at(av, idx);
+
+    if ((victim = last(bin)) != bin){
+      bck = victim->bk;
+
+      if (__glibc_unlikely (bck->fd != victim)){
+        malloc_printerr ("malloc(): smallbin double linked list corrupted");
+      }
+
+      set_inuse_bit_at_offset(victim, nb);
+      bin->bk = bck;
+      bck->fd = bin;
+
+      if (av != &main_arena){
+        set_non_main_arena (victim);
+      }
+
+      check_malloced_chunk (av, victim, nb);
+
+#if USE_TCACHE
+  /* While we're here, if we see other chunks of the same size,
+     stash them in the tcache. */
+      size_t tc_idx = csize2tidx (nb);
+      if (tc_idx < mp_.tcache_small_bins){
+        mchunkptr tc_victim;
+
+        if (__glibc_unlikely (tcache_inactive ())){
+          tcache_init (av);
+        }
+
+        /* While bin not empty and tcache not full, copy chunks over. */
+        while (
+          (tcache->num_slots[tc_idx] != 0) &&
+          ((tc_victim = last (bin)) != bin)
+        ){
+          if (tc_victim != NULL){
+            bck = tc_victim->bk;
+            set_inuse_bit_at_offset(tc_victim, nb);
+
+            if (av != &main_arena){
+              set_non_main_arena(tc_victim);
+            }
+
+            bin->bk = bck;
+            bck->fd = bin;
+
+            tcache_put(tc_victim, tc_idx);
+          }
+        }
+      }
+#endif
+      void *p = chunk2mem (victim);
+      alloc_perturb (p, bytes);
       return p;
     }
+  }
+  else{
+    idx = largebin_index (nb);
+  }
 
   /*
-     If a small request, check regular bin.  Since these "smallbins"
-     hold one size each, no searching within bins is necessary.
-     (For a large request, we need to wait until unsorted chunks are
-     processed to find best fit. But for small ones, fits are exact
-     anyway, so we can check now, which is faster.)
-   */
+    Process recently freed or remaindered chunks, taking one only if
+    it is exact fit, or, if this a small request, the chunk is 
+    remainder from the most recent non-exact fit.
+    - Place other traversed chunks in bins.
+    - Note that this step is the only place in any routine where
+    chunks are placed in bins.
+  */
 
-  if (in_smallbin_range (nb))
-    {
-      idx = smallbin_index (nb);
-      bin = bin_at (av, idx);
+  {
+    int iters = 0;
+    while (
+      (victim = unsorted_chunks (av)->bk) != unsorted_chunks (av)
+    ){
+      bck = victim->bk;
+      size = chunksize(victim);
+      mchunkptr next = chunk_at_offset(victim, size);
 
-      if ((victim = last (bin)) != bin)
-        {
-          bck = victim->bk;
-	  if (__glibc_unlikely (bck->fd != victim))
-	    malloc_printerr ("malloc(): smallbin double linked list corrupted");
-          set_inuse_bit_at_offset (victim, nb);
-          bin->bk = bck;
-          bck->fd = bin;
+      if (
+        __glibc_unlikely(size <= CHUNK_HDR_SZ) || 
+        __glibc_unlikely(size > av->system_mem)
+      )
+        malloc_printerr("malloc(): invalid size (unsorted)");
 
-          if (av != &main_arena)
-	    set_non_main_arena (victim);
-          check_malloced_chunk (av, victim, nb);
-#if USE_TCACHE
-	  /* While we're here, if we see other chunks of the same size,
-	     stash them in the tcache.  */
-	  size_t tc_idx = csize2tidx (nb);
-	  if (tc_idx < mp_.tcache_small_bins)
-	    {
-	      mchunkptr tc_victim;
+      if (
+        __glibc_unlikely(chunksize_nomask(next) < CHUNK_HDR_SZ) || 
+        __glibc_unlikely(chunksize_nomask(next) > av->system_mem)
+      )
+        malloc_printerr("malloc(): invalid next size (unsorted)");
 
-	      if (__glibc_unlikely (tcache_inactive ()))
-		tcache_init (av);
+      if (__glibc_unlikely((prev_size(next) & ~(SIZE_BITS)) != size))
+        malloc_printerr("malloc(): mismatching next->prev_size (unsorted)");
 
-	      /* While bin not empty and tcache not full, copy chunks over.  */
-	      while (tcache->num_slots[tc_idx] != 0
-		     && (tc_victim = last (bin)) != bin)
-		{
-		  if (tc_victim != NULL)
-		    {
-		      bck = tc_victim->bk;
-		      set_inuse_bit_at_offset (tc_victim, nb);
-		      if (av != &main_arena)
-			set_non_main_arena (tc_victim);
-		      bin->bk = bck;
-		      bck->fd = bin;
+      if (
+        __glibc_unlikely(bck->fd != victim) || 
+        __glibc_unlikely(victim->fd != unsorted_chunks(av))
+      )
+        malloc_printerr("malloc(): unsorted double linked list corrupted");
 
-		      tcache_put (tc_victim, tc_idx);
-	            }
-		}
-	    }
-#endif
-          void *p = chunk2mem (victim);
-          alloc_perturb (p, bytes);
-          return p;
-        }
-    }
-
-  else
-    {
-      idx = largebin_index (nb);
-    }
-
-  /*
-     Process recently freed or remaindered chunks, taking one only if
-     it is exact fit, or, if this a small request, the chunk is remainder from
-     the most recent non-exact fit.  Place other traversed chunks in
-     bins.  Note that this step is the only place in any routine where
-     chunks are placed in bins.
-   */
-
-    {
-      int iters = 0;
-      while ((victim = unsorted_chunks (av)->bk) != unsorted_chunks (av))
-        {
-          bck = victim->bk;
-          size = chunksize (victim);
-          mchunkptr next = chunk_at_offset (victim, size);
-
-          if (__glibc_unlikely (size <= CHUNK_HDR_SZ)
-              || __glibc_unlikely (size > av->system_mem))
-            malloc_printerr ("malloc(): invalid size (unsorted)");
-          if (__glibc_unlikely (chunksize_nomask (next) < CHUNK_HDR_SZ)
-              || __glibc_unlikely (chunksize_nomask (next) > av->system_mem))
-            malloc_printerr ("malloc(): invalid next size (unsorted)");
-          if (__glibc_unlikely ((prev_size (next) & ~(SIZE_BITS)) != size))
-            malloc_printerr ("malloc(): mismatching next->prev_size (unsorted)");
-          if (__glibc_unlikely (bck->fd != victim)
-              || __glibc_unlikely (victim->fd != unsorted_chunks (av)))
-            malloc_printerr ("malloc(): unsorted double linked list corrupted");
-          if (__glibc_unlikely (prev_inuse (next)))
-            malloc_printerr ("malloc(): invalid next->prev_inuse (unsorted)");
-
-          /*
-             If a small request, try to use last remainder if it is the
-             only chunk in unsorted bin.  This helps promote locality for
-             runs of consecutive small requests. This is the only
-             exception to best-fit, and applies only when there is
-             no exact fit for a small chunk.
-           */
-
-          if (in_smallbin_range (nb) &&
-              bck == unsorted_chunks (av) &&
-              victim == av->last_remainder &&
-              (unsigned long) (size) > (unsigned long) (nb + MINSIZE))
-            {
-              /* split and reattach remainder */
-              remainder_size = size - nb;
-              remainder = chunk_at_offset (victim, nb);
-              unsorted_chunks (av)->bk = unsorted_chunks (av)->fd = remainder;
-              av->last_remainder = remainder;
-              remainder->bk = remainder->fd = unsorted_chunks (av);
-              if (!in_smallbin_range (remainder_size))
-                {
-                  remainder->fd_nextsize = NULL;
-                  remainder->bk_nextsize = NULL;
-                }
-
-              set_head (victim, nb | PREV_INUSE |
-                        (av != &main_arena ? NON_MAIN_ARENA : 0));
-              set_head (remainder, remainder_size | PREV_INUSE);
-              set_foot (remainder, remainder_size);
-
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
-            }
-
-          /* remove from unsorted list */
-          unsorted_chunks (av)->bk = bck;
-          bck->fd = unsorted_chunks (av);
-
-          /* Take now instead of binning if exact fit */
-
-          if (size == nb)
-            {
-              set_inuse_bit_at_offset (victim, size);
-              if (av != &main_arena)
-		set_non_main_arena (victim);
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
-            }
-
-          /* Place chunk in bin.  Only splitting can put
-             small chunks into the unsorted bin. */
-          if (__glibc_unlikely (in_smallbin_range (size)))
-            {
-              victim_index = smallbin_index (size);
-              bck = bin_at (av, victim_index);
-              fwd = bck->fd;
-            }
-          else
-            {
-              victim_index = largebin_index (size);
-              bck = bin_at (av, victim_index);
-              fwd = bck->fd;
-
-              /* maintain large bins in sorted order */
-              if (fwd != bck)
-                {
-                  /* Or with inuse bit to speed comparisons */
-                  size |= PREV_INUSE;
-                  /* if smaller than smallest, bypass loop below */
-                  assert (chunk_main_arena (bck->bk));
-                  if ((unsigned long) (size)
-		      < (unsigned long) chunksize_nomask (bck->bk))
-                    {
-                      fwd = bck;
-                      bck = bck->bk;
-
-                      if (__glibc_unlikely (fwd->fd->bk_nextsize->fd_nextsize != fwd->fd))
-                        malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)");
-
-                      victim->fd_nextsize = fwd->fd;
-                      victim->bk_nextsize = fwd->fd->bk_nextsize;
-                      fwd->fd->bk_nextsize = victim->bk_nextsize->fd_nextsize = victim;
-                    }
-                  else
-                    {
-                      assert (chunk_main_arena (fwd));
-                      while ((unsigned long) size < chunksize_nomask (fwd))
-                        {
-                          fwd = fwd->fd_nextsize;
-			  assert (chunk_main_arena (fwd));
-                        }
-
-                      if ((unsigned long) size
-			  == (unsigned long) chunksize_nomask (fwd))
-                        /* Always insert in the second position.  */
-                        fwd = fwd->fd;
-                      else
-                        {
-                          victim->fd_nextsize = fwd;
-                          victim->bk_nextsize = fwd->bk_nextsize;
-                          if (__glibc_unlikely (fwd->bk_nextsize->fd_nextsize != fwd))
-                            malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)");
-                          fwd->bk_nextsize = victim;
-                          victim->bk_nextsize->fd_nextsize = victim;
-                        }
-                      bck = fwd->bk;
-                      if (bck->fd != fwd)
-                        malloc_printerr ("malloc(): largebin double linked list corrupted (bk)");
-                    }
-                }
-              else
-                victim->fd_nextsize = victim->bk_nextsize = victim;
-            }
-
-          mark_bin (av, victim_index);
-          victim->bk = bck;
-          victim->fd = fwd;
-          fwd->bk = victim;
-          bck->fd = victim;
-
-#define MAX_ITERS       10000
-          if (++iters >= MAX_ITERS)
-            break;
-        }
+      if (__glibc_unlikely(prev_inuse(next)))
+        malloc_printerr("malloc(): invalid next->prev_inuse (unsorted)");
 
       /*
-         If a large request, scan through the chunks of current bin in
-         sorted order to find smallest that fits.  Use the skip list for this.
-       */
+        If a small request, try to use last remainder if it is the
+        only chunk in unsorted bin.
+        - This helps promote locality for runs of consecutive small 
+          requests. 
+        - This is the only exception to best-fit, and applies only 
+          when there is no exact fit for a small chunk.
+      */
 
-      if (!in_smallbin_range (nb))
-        {
-          bin = bin_at (av, idx);
+      if (
+        in_smallbin_range(nb) &&
+        (bck == unsorted_chunks(av)) &&
+        (victim == av->last_remainder) &&
+        ((unsigned long)(size) > (unsigned long)(nb + MINSIZE))
+      ){
+        /* split and reattach remainder */
+        remainder_size = size - nb;
+        remainder = chunk_at_offset(victim, nb);
+        unsorted_chunks(av)->bk = unsorted_chunks(av)->fd = remainder;
+        av->last_remainder = remainder;
+        remainder->bk = remainder->fd = unsorted_chunks(av);
 
-          /* skip scan if empty or largest chunk is too small */
-          if ((victim = first (bin)) != bin
-	      && (unsigned long) chunksize_nomask (victim)
-	        >= (unsigned long) (nb))
-            {
-              victim = victim->bk_nextsize;
-              while (((unsigned long) (size = chunksize (victim)) <
-                      (unsigned long) (nb)))
-                victim = victim->bk_nextsize;
-
-              /* Avoid removing the first entry for a size so that the skip
-                 list does not have to be rerouted.  */
-              if (victim != last (bin)
-		  && chunksize_nomask (victim)
-		    == chunksize_nomask (victim->fd))
-                victim = victim->fd;
-
-              remainder_size = size - nb;
-              unlink_chunk (av, victim);
-
-              /* Exhaust */
-              if (remainder_size < MINSIZE)
-                {
-                  set_inuse_bit_at_offset (victim, size);
-                  if (av != &main_arena)
-		    set_non_main_arena (victim);
-                }
-              /* Split */
-              else
-                {
-                  remainder = chunk_at_offset (victim, nb);
-                  /* We cannot assume the unsorted list is empty and therefore
-                     have to perform a complete insert here.  */
-                  bck = unsorted_chunks (av);
-                  fwd = bck->fd;
-		  if (__glibc_unlikely (fwd->bk != bck))
-		    malloc_printerr ("malloc(): corrupted unsorted chunks");
-                  remainder->bk = bck;
-                  remainder->fd = fwd;
-                  bck->fd = remainder;
-                  fwd->bk = remainder;
-                  if (!in_smallbin_range (remainder_size))
-                    {
-                      remainder->fd_nextsize = NULL;
-                      remainder->bk_nextsize = NULL;
-                    }
-                  set_head (victim, nb | PREV_INUSE |
-                            (av != &main_arena ? NON_MAIN_ARENA : 0));
-                  set_head (remainder, remainder_size | PREV_INUSE);
-                  set_foot (remainder, remainder_size);
-                }
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
-            }
+        if (!in_smallbin_range(remainder_size)){
+          remainder->fd_nextsize = NULL;
+          remainder->bk_nextsize = NULL;
         }
 
-      /*
-         Search for a chunk by scanning bins, starting with next largest
-         bin. This search is strictly by best-fit; i.e., the smallest
-         (with ties going to approximately the least recently used) chunk
-         that fits is selected.
+        set_head(
+          victim, 
+          nb | PREV_INUSE | (av != &main_arena ? NON_MAIN_ARENA : 0)
+        );
 
-         The bitmap avoids needing to check that most blocks are nonempty.
-         The particular case of skipping all bins during warm-up phases
-         when no chunks have been returned yet is faster than it might look.
-       */
+        set_head(
+          remainder, 
+          remainder_size | PREV_INUSE
+        );
 
-      ++idx;
+        set_foot(
+          remainder, 
+          remainder_size
+        );
+
+        check_malloced_chunk (av, victim, nb);
+        void *p = chunk2mem (victim);
+        alloc_perturb (p, bytes);
+        return p;
+      }
+
+      /* remove from unsorted list */
+      unsorted_chunks(av)->bk = bck;
+      bck->fd = unsorted_chunks(av);
+
+      /* Take now instead of binning if exact fit */
+      if (size == nb){
+        set_inuse_bit_at_offset(victim, size);
+
+        if (av != &main_arena){
+          set_non_main_arena (victim);
+        }
+
+        check_malloced_chunk (av, victim, nb);
+        void *p = chunk2mem (victim);
+        alloc_perturb (p, bytes);
+        return p;
+      }
+
+      /* Place chunk in bin. Only splitting can put
+         small chunks into the unsorted bin. */
+      if (__glibc_unlikely(in_smallbin_range(size))){
+        victim_index = smallbin_index(size);
+        bck = bin_at(av, victim_index);
+        fwd = bck->fd;
+      }
+
+      else{
+        victim_index = largebin_index (size);
+        bck = bin_at (av, victim_index);
+        fwd = bck->fd;
+
+        /* maintain large bins in sorted order */
+        if (fwd != bck){
+          /* Or with inuse bit to speed comparisons */
+          size |= PREV_INUSE;
+
+          /* if smaller than smallest, bypass loop below */
+          assert(chunk_main_arena (bck->bk));
+
+          if (
+            (unsigned long)(size) < (unsigned long)chunksize_nomask(bck->bk)
+          ){
+            fwd = bck;
+            bck = bck->bk;
+
+            if (__glibc_unlikely (fwd->fd->bk_nextsize->fd_nextsize != fwd->fd))
+              malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)");
+
+            victim->fd_nextsize = fwd->fd;
+            victim->bk_nextsize = fwd->fd->bk_nextsize;
+            fwd->fd->bk_nextsize = victim->bk_nextsize->fd_nextsize = victim;
+          }
+
+          else{
+            assert (chunk_main_arena (fwd));
+            while (
+              (unsigned long)size < chunksize_nomask (fwd)
+            ){
+              fwd = fwd->fd_nextsize;
+			        assert(chunk_main_arena (fwd));
+            }
+
+            if (
+              (unsigned long)size == (unsigned long)chunksize_nomask(fwd)
+            ){
+              /* Always insert in the second position.  */
+              fwd = fwd->fd;
+            }
+
+            else{
+              victim->fd_nextsize = fwd;
+              victim->bk_nextsize = fwd->bk_nextsize;
+
+              if (__glibc_unlikely (fwd->bk_nextsize->fd_nextsize != fwd))
+                malloc_printerr ("malloc(): largebin double linked list corrupted (nextsize)");
+
+              fwd->bk_nextsize = victim;
+              victim->bk_nextsize->fd_nextsize = victim;
+            }
+
+            bck = fwd->bk;
+            if (bck->fd != fwd)
+              malloc_printerr ("malloc(): largebin double linked list corrupted (bk)");
+          }
+        }
+
+        else{
+          victim->fd_nextsize = victim->bk_nextsize = victim;
+        }
+      }
+
+      mark_bin (av, victim_index);
+      victim->bk = bck;
+      victim->fd = fwd;
+      fwd->bk = victim;
+      bck->fd = victim;
+
+#define MAX_ITERS    10000
+      if (++iters >= MAX_ITERS)
+        break;
+    }
+
+    /*
+      If a large request, scan through the chunks of the current 
+      bin in sorted order to find smallest that fits. Use the 
+      skip list for this.
+    */
+
+    if (!in_smallbin_range (nb)){
       bin = bin_at (av, idx);
-      block = idx2block (idx);
-      map = av->binmap[block];
-      bit = idx2bit (idx);
 
-      for (;; )
-        {
-          /* Skip rest of block if there are no more set bits in this block.  */
-          if (bit > map || bit == 0)
-            {
-              do
-                {
-                  if (++block >= BINMAPSIZE) /* out of bins */
-                    goto use_top;
-                }
-              while ((map = av->binmap[block]) == 0);
+      /* skip scan if empty or largest chunk is too small */
+      if (
+        ((victim = first(bin)) != bin) && 
+        ((unsigned long)chunksize_nomask(victim) >= (unsigned long)(nb))
+      ){
+        victim = victim->bk_nextsize;
+        size = chunksize(victim);
 
-              bin = bin_at (av, (block << BINMAPSHIFT));
-              bit = 1;
-            }
-
-          /* Advance to bin with set bit. There must be one. */
-          while ((bit & map) == 0)
-            {
-              bin = next_bin (bin);
-              bit <<= 1;
-              assert (bit != 0);
-            }
-
-          /* Inspect the bin. It is likely to be non-empty */
-          victim = last (bin);
-
-          /*  If a false alarm (empty bin), clear the bit. */
-          if (victim == bin)
-            {
-              av->binmap[block] = map &= ~bit; /* Write through */
-              bin = next_bin (bin);
-              bit <<= 1;
-            }
-
-          else
-            {
-              size = chunksize (victim);
-
-              /*  We know the first chunk in this bin is big enough to use. */
-              assert ((unsigned long) (size) >= (unsigned long) (nb));
-
-              remainder_size = size - nb;
-
-              /* unlink */
-              unlink_chunk (av, victim);
-
-              /* Exhaust */
-              if (remainder_size < MINSIZE)
-                {
-                  set_inuse_bit_at_offset (victim, size);
-                  if (av != &main_arena)
-		    set_non_main_arena (victim);
-                }
-
-              /* Split */
-              else
-                {
-                  remainder = chunk_at_offset (victim, nb);
-
-                  /* We cannot assume the unsorted list is empty and therefore
-                     have to perform a complete insert here.  */
-                  bck = unsorted_chunks (av);
-                  fwd = bck->fd;
-		  if (__glibc_unlikely (fwd->bk != bck))
-		    malloc_printerr ("malloc(): corrupted unsorted chunks 2");
-                  remainder->bk = bck;
-                  remainder->fd = fwd;
-                  bck->fd = remainder;
-                  fwd->bk = remainder;
-
-                  /* advertise as last remainder */
-                  if (in_smallbin_range (nb))
-                    av->last_remainder = remainder;
-                  if (!in_smallbin_range (remainder_size))
-                    {
-                      remainder->fd_nextsize = NULL;
-                      remainder->bk_nextsize = NULL;
-                    }
-                  set_head (victim, nb | PREV_INUSE |
-                            (av != &main_arena ? NON_MAIN_ARENA : 0));
-                  set_head (remainder, remainder_size | PREV_INUSE);
-                  set_foot (remainder, remainder_size);
-                }
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
-            }
+        while (
+          ((unsigned long)(size) < (unsigned long)(nb))
+        ){
+          victim = victim->bk_nextsize;
         }
+
+        /* Avoid removing the first entry for a size so that 
+           the skip list does not have to be rerouted. */
+        if (
+          (victim != last(bin)) && 
+          (chunksize_nomask(victim) == chunksize_nomask (victim->fd))
+        ){
+          victim = victim->fd;
+        }
+
+        remainder_size = (size - nb);
+        unlink_chunk(av, victim);
+
+        /* Exhaust */
+        if (remainder_size < MINSIZE){
+          set_inuse_bit_at_offset(victim, size);
+
+          if (av != &main_arena){
+            set_non_main_arena (victim);
+          }
+        }
+        /* Split */
+        else{
+          remainder = chunk_at_offset(victim, nb);
+
+          /* We cannot assume the unsorted list is empty and 
+            therefore have to perform a complete insert here. */
+          bck = unsorted_chunks(av);
+          fwd = bck->fd;
+
+          if (__glibc_unlikely(fwd->bk != bck)){
+            malloc_printerr ("malloc(): corrupted unsorted chunks");
+          }
+
+          remainder->bk = bck;
+          remainder->fd = fwd;
+          bck->fd = remainder;
+          fwd->bk = remainder;
+
+          if (!in_smallbin_range(remainder_size)){
+            remainder->fd_nextsize = NULL;
+            remainder->bk_nextsize = NULL;
+          }
+
+          set_head(
+            victim, 
+            nb | PREV_INUSE | (av != &main_arena ? NON_MAIN_ARENA : 0)
+          );
+
+          set_head(remainder, remainder_size | PREV_INUSE);
+          set_foot(remainder, remainder_size);
+        }
+
+        check_malloced_chunk(av, victim, nb);
+        void *p = chunk2mem(victim);
+        alloc_perturb(p, bytes);
+        return p;
+      }
+    }
+
+    /*
+      Search for a chunk by scanning bins, starting with next largest
+      bin. This search is strictly by best-fit; i.e., the smallest
+      (with ties going to approximately the least recently used) chunk
+      that fits is selected.
+
+      The bitmap avoids needing to check that most blocks are nonempty.
+      The particular case of skipping all bins during warm-up phases
+      when no chunks have been returned yet is faster than it might look.
+    */
+
+    ++idx;
+    bin   = bin_at(av, idx);
+    block = idx2block(idx);
+    map   = av->binmap[block];
+    bit   = idx2bit(idx);
+
+    for (;; ){
+      /* Skip rest of block if there are no more set bits in this block.  */
+      if (bit > map || bit == 0){
+        do {
+          if (++block >= BINMAPSIZE)  /* out of bins */
+            goto use_top;
+        } while ((map = av->binmap[block]) == 0);
+
+        bin = bin_at(av, (block << BINMAPSHIFT));
+        bit = 1;
+      }
+
+      /* Advance to bin with set bit. There must be one. */
+      while ((bit & map) == 0){
+        bin = next_bin(bin);
+        bit <<= 1;
+        assert(bit != 0);
+      }
+
+      /* Inspect the bin. It is likely to be non-empty */
+      victim = last(bin);
+
+      /*  If a false alarm (empty bin), clear the bit. */
+      if (victim == bin){
+        av->binmap[block] = map &= ~bit; /* Write through */
+        bin = next_bin(bin);
+        bit <<= 1;
+      }
+      else{
+        size = chunksize(victim);
+
+        /*  We know the first chunk in this bin is big enough to use. */
+        assert((unsigned long)(size) >= (unsigned long)(nb));
+        remainder_size = (size - nb);
+
+        /* unlink */
+        unlink_chunk(av, victim);
+
+        /* Exhaust */
+        if (remainder_size < MINSIZE){
+          set_inuse_bit_at_offset(victim, size);
+          if (av != &main_arena){
+            set_non_main_arena(victim);
+          }
+        }
+
+        /* Split */
+        else{
+          remainder = chunk_at_offset(victim, nb);
+
+          /* We cannot assume the unsorted list is empty and therefore
+             have to perform a complete insert here. */
+          bck = unsorted_chunks(av);
+          fwd = bck->fd;
+
+          if (__glibc_unlikely(fwd->bk != bck)){
+            malloc_printerr ("malloc(): corrupted unsorted chunks 2");
+          }
+
+          remainder->bk = bck;
+          remainder->fd = fwd;
+          bck->fd = remainder;
+          fwd->bk = remainder;
+
+          /* advertise as last remainder */
+          if (in_smallbin_range(nb)){
+            av->last_remainder = remainder;
+          }
+
+          if (!in_smallbin_range(remainder_size)){
+            remainder->fd_nextsize = NULL;
+            remainder->bk_nextsize = NULL;
+          }
+
+          set_head(
+            victim, 
+            nb | PREV_INUSE | (av != &main_arena ? NON_MAIN_ARENA : 0)
+          );
+          set_head(remainder, remainder_size | PREV_INUSE);
+          set_foot(remainder, remainder_size);
+        }
+
+        check_malloced_chunk (av, victim, nb);
+        void *p = chunk2mem (victim);
+        alloc_perturb (p, bytes);
+        return p;
+      }
+    }
 
     use_top:
       /*
-         If large enough, split off the chunk bordering the end of memory
-         (held in av->top). Note that this is in accord with the best-fit
-         search rule.  In effect, av->top is treated as larger (and thus
-         less well fitting) than any other available chunk since it can
-         be extended to be as large as necessary (up to system
-         limitations).
+        If large enough, split off the chunk bordering the end of memory
+        (held in av->top).
+        - Note that this is in accord with the best-fit search rule.
+        - In effect, av->top is treated as larger (and thus less well 
+          fitting) than any other available chunk since it can be extended 
+          to be as large as necessary (up to system limitations).
 
-         We require that av->top always exists (i.e., has size >=
-         MINSIZE) after initialization, so if it would otherwise be
-         exhausted by current request, it is replenished. (The main
-         reason for ensuring it exists is that we may need MINSIZE space
-         to put in fenceposts in sysmalloc.)
-       */
+        We require that av->top always exists (i.e., has size >= MINSIZE) 
+        after initialization, so if it would otherwise be exhausted by 
+        current request, it is replenished.
+        - The main reason for ensuring it exists is that we may need 
+          MINSIZE space to put in fenceposts in sysmalloc.)
+      */
 
       victim = av->top;
-      size = chunksize (victim);
+      size   = chunksize(victim);
 
       if (__glibc_unlikely (size > av->system_mem))
         malloc_printerr ("malloc(): corrupted top size");
 
-      if ((unsigned long) (size) >= (unsigned long) (nb + MINSIZE))
-        {
-          remainder_size = size - nb;
-          remainder = chunk_at_offset (victim, nb);
-          av->top = remainder;
-          set_head (victim, nb | PREV_INUSE |
-                    (av != &main_arena ? NON_MAIN_ARENA : 0));
-          set_head (remainder, remainder_size | PREV_INUSE);
+      if ((unsigned long) (size) >= (unsigned long) (nb + MINSIZE)){
+        remainder_size = (size - nb);
+        remainder = chunk_at_offset(victim, nb);
+        av->top = remainder;
+        set_head(
+          victim, 
+          nb | PREV_INUSE | (av != &main_arena ? NON_MAIN_ARENA : 0)
+        );
+        set_head(remainder, remainder_size | PREV_INUSE);
 
-          check_malloced_chunk (av, victim, nb);
-          void *p = chunk2mem (victim);
+        check_malloced_chunk(av, victim, nb);
+        void *p = chunk2mem(victim);
+        alloc_perturb(p, bytes);
+        return p;
+      }
+
+      /* Otherwise, relay to handle system-dependent cases */
+      else{
+        void *p = sysmalloc (nb, av);
+        if (p != NULL){
           alloc_perturb (p, bytes);
-          return p;
         }
-
-      /*
-         Otherwise, relay to handle system-dependent cases
-       */
-      else
-        {
-          void *p = sysmalloc (nb, av);
-          if (p != NULL)
-            alloc_perturb (p, bytes);
-          return p;
-        }
-    }
+        return p;
+      }
+  }
 }
 
-/*
-   ------------------------------ free ------------------------------
- */
+/* ------------------------------ free ------------------------------ */
 
-/* Free chunk P of SIZE bytes to the arena.  HAVE_LOCK indicates where
-   the arena for P has already been locked.  Caller must ensure chunk
-   and size are valid.  */
-static void
-_int_free_chunk (mstate av, mchunkptr p, INTERNAL_SIZE_T size, int have_lock)
-{
-  /*
-    Consolidate other non-mmapped chunks as they arrive.
-  */
+/* Free chunk P of SIZE bytes to the arena.
+   HAVE_LOCK indicates where the arena for P has already been
+    locked. Caller must ensure chunk and size are valid.  */
+static void _int_free_chunk(
+  mstate av, 
+  mchunkptr p, 
+  INTERNAL_SIZE_T size, 
+  int have_lock
+){
+  /* Consolidate other non-mmapped chunks as they arrive. */
 
-  if (!chunk_is_mmapped(p)) {
-
-    /* Preserve errno in case block merging results in munmap.  */
+  if (!chunk_is_mmapped(p)){
+    /* Preserve errno in case block merging results in munmap. */
     int err = errno;
 
-    /* If we're single-threaded, don't lock the arena.  */
+    /* If we're single-threaded, don't lock the arena. */
     if (SINGLE_THREAD_P)
       have_lock = true;
 
     if (!have_lock)
-      __libc_lock_lock (av->mutex);
+      __libc_lock_lock(av->mutex);
 
-    _int_free_merge_chunk (av, p, size);
+    _int_free_merge_chunk(av, p, size);
 
     if (!have_lock)
-      __libc_lock_unlock (av->mutex);
+      __libc_lock_unlock(av->mutex);
 
     __set_errno (err);
   }
-  /*
-    If the chunk was allocated via mmap, release via munmap().
-  */
 
+  /* If the chunk was allocated via mmap, release via munmap(). */
   else {
-
-    /* Preserve errno in case munmap sets it.  */
+    /* Preserve errno in case munmap sets it. */
     int err = errno;
 
     /* See if the dynamic brk/mmap threshold needs adjusting.
        Dumped fake mmapped chunks do not affect the threshold.  */
-    if (!mp_.no_dyn_threshold
-        && chunksize_nomask (p) > mp_.mmap_threshold
-        && chunksize_nomask (p) <= DEFAULT_MMAP_THRESHOLD_MAX)
-      {
-        mp_.mmap_threshold = chunksize (p);
-        mp_.trim_threshold = 2 * mp_.mmap_threshold;
-        LIBC_PROBE (memory_mallopt_free_dyn_thresholds, 2,
-		    mp_.mmap_threshold, mp_.trim_threshold);
-      }
+    if (
+      (!mp_.no_dyn_threshold) &&
+      (chunksize_nomask(p) > mp_.mmap_threshold) &&
+      (chunksize_nomask(p) <= DEFAULT_MMAP_THRESHOLD_MAX)
+    ){
+      mp_.mmap_threshold = chunksize (p);
+      mp_.trim_threshold = 2 * mp_.mmap_threshold;
+      LIBC_PROBE(
+        memory_mallopt_free_dyn_thresholds, 
+        2,
+        mp_.mmap_threshold, 
+        mp_.trim_threshold
+      );
+    }
 
-    munmap_chunk (p);
-
-    __set_errno (err);
+    munmap_chunk(p);
+    __set_errno(err);
   }
 }
 
