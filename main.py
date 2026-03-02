@@ -1,3 +1,4 @@
+print("Print x86 bin elements")
 for i in range(1, 64):
   print(f'fd_{i*8}, bk_{i*8}')
 
@@ -22,6 +23,32 @@ for i in range(1, 4+1):
   x = x + 32768
 
 x = 174592
+for i in range(1, 2+1):
+  print(f'fd_{x}, bk_{x}')
+  x = x + 262144
+
+
+print("Print x64 bin elements")
+for i in range(1, 64):
+  print(f'fd_{i*16}, bk_{i*16}')
+
+x = 1024
+for i in range(1, 32+1):
+  print(f'fd_{x}, bk_{x}')
+  x = x + 64
+
+for i in range(1, 16+1):
+  print(f'fd_{x}, bk_{x}')
+  x = x + 512
+
+for i in range(1, 8+1):
+  print(f'fd_{x}, bk_{x}')
+  x = x + 4096
+
+for i in range(1, 4+1):
+  print(f'fd_{x}, bk_{x}')
+  x = x + 32768
+
 for i in range(1, 2+1):
   print(f'fd_{x}, bk_{x}')
   x = x + 262144
