@@ -91,7 +91,7 @@
   Supported pointer representation:       4 bytes (x86) or 8 bytes (x64)
   Supported size_t  representation:       4 bytes (x86) or 8 bytes (x64)
     - Note that size_t is allowed to be 4 bytes even if pointers are 8.
-      It can be adjusted by defining INTERNAL_SIZE_T (Why though!)
+      It can be adjusted by defining INTERNAL_SIZE_T
 
   Alignment:  2 * sizeof(size_t)    := 8 bytes (x86) or 16 bytes on (x64)
     This suffices for nearly all current machines and C compilers. 

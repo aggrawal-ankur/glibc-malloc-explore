@@ -279,14 +279,14 @@ typedef struct malloc_chunk *mbinptr;
 
 /* addressing -- note that bin_at(0) does not exist */
 #define bin_at(m, i) \
-  (mbinptr) (((char*) &((m)->bins[((i) - 1) * 2])) - offsetof(struct malloc_chunk, fd))
+  (mbinptr) (((char*) &((m)->bins[(i-1)*2])) - offsetof(struct malloc_chunk, fd))
 
 /* analog of ++bin */
-#define next_bin(b)  ((mbinptr) ((char*)(b) + (sizeof(mchunkptr) << 1)))
+#define next_bin(b)    ((mbinptr) ((char*)(b) + (sizeof(mchunkptr) << 1)))
 
 /* Reminders about list directionality within bins */
-#define first(b)     ((b)->fd)
-#define last(b)      ((b)->bk)
+#define first(b)    ((b)->fd)
+#define last(b)     ((b)->bk)
 
 #define NBINS                 128
 #define NSMALLBINS            64
@@ -304,15 +304,15 @@ typedef struct malloc_chunk *mbinptr;
 
 #define smallbin_index(sz)  ( \
   ( \
-    (SMALLBIN_WIDTH == 16) \
+    (SMALLBIN_WIDTH == 16)  \
     ? ((unsigned)(sz) >> 4) \ 
     : ((unsigned)(sz) >> 3) \
   ) + SMALLBIN_CORRECTION \
 )
 
 #define largebin_index_32(sz)    ( \
-  (((unsigned long)(sz) >>  6) <= 38) ?  56 + ((unsigned long)(sz) >> 6)  : \
-  (((unsigned long)(sz) >>  9) <= 20) ?  91 + ((unsigned long)(sz) >> 9)  : \
+  (((unsigned long)(sz) >>  6) <= 38) ?  56 + ((unsigned long)(sz) >>  6) : \
+  (((unsigned long)(sz) >>  9) <= 20) ?  91 + ((unsigned long)(sz) >>  9) : \
   (((unsigned long)(sz) >> 12) <= 10) ? 110 + ((unsigned long)(sz) >> 12) : \
   (((unsigned long)(sz) >> 15) <=  4) ? 119 + ((unsigned long)(sz) >> 15) : \
   (((unsigned long)(sz) >> 18) <=  2) ? 124 + ((unsigned long)(sz) >> 18) : \
@@ -332,8 +332,8 @@ typedef struct malloc_chunk *mbinptr;
 // XXX the buckets the same or whether it should be scaled by a factor
 // XXX of two as well.
 #define largebin_index_64(sz)    ( \
-  (((unsigned long)(sz) >>  6) <= 48) ?  48 + ((unsigned long)(sz) >> 6)  : \
-  (((unsigned long)(sz) >>  9) <= 20) ?  91 + ((unsigned long)(sz) >> 9)  : \
+  (((unsigned long)(sz) >>  6) <= 48) ?  48 + ((unsigned long)(sz) >>  6) : \
+  (((unsigned long)(sz) >>  9) <= 20) ?  91 + ((unsigned long)(sz) >>  9) : \
   (((unsigned long)(sz) >> 12) <= 10) ? 110 + ((unsigned long)(sz) >> 12) : \
   (((unsigned long)(sz) >> 15) <=  4) ? 119 + ((unsigned long)(sz) >> 15) : \
   (((unsigned long)(sz) >> 18) <=  2) ? 124 + ((unsigned long)(sz) >> 18) : \
@@ -349,7 +349,7 @@ typedef struct malloc_chunk *mbinptr;
 #define bin_index(sz)    (in_smallbin_range(sz) ? smallbin_index(sz) : largebin_index(sz))
 
 /* Take a chunk off a bin list. */
-static void unlink_chunk (mstate av, mchunkptr p)
+static void unlink_chunk(mstate av, mchunkptr p)
 {
   if (chunksize(p) != prev_size(next_chunk(p))){
     malloc_printerr ("corrupted size vs. prev_size");
@@ -406,21 +406,21 @@ static void unlink_chunk (mstate av, mchunkptr p)
 /* `Binmap` */
 
 /* Conservatively use 32 bits per map word, even if on 64-bit system */
-#define BINMAPSHIFT      5
-#define BITSPERMAP       (1U << BINMAPSHIFT)
-#define BINMAPSIZE       (NBINS / BITSPERMAP)
+#define BINMAPSHIFT     5
+#define BITSPERMAP     (1U << BINMAPSHIFT)
+#define BINMAPSIZE     (NBINS / BITSPERMAP)
 
-#define idx2block(i)     ((i) >> BINMAPSHIFT)
-#define idx2bit(i)       ((1U << ((i) & ((1U << BINMAPSHIFT) - 1))))
+#define idx2block(i)     (i >> BINMAPSHIFT)
+#define idx2bit(i)       ((1U << (i & ((1U << BINMAPSHIFT) - 1))))
 
 #define mark_bin(m, i)    (m->binmap[idx2block(i)] |=   idx2bit(i))
 #define unmark_bin(m, i)  (m->binmap[idx2block(i)] &= ~(idx2bit(i)))
 #define get_binmap(m, i)  (m->binmap[idx2block(i)] &    idx2bit(i))
 
 
-#define contiguous(M)          (((M)->flags & NONCONTIGUOUS_BIT) == 0)
-#define set_noncontiguous(M)   ((M)->flags |= NONCONTIGUOUS_BIT)
-#define set_contiguous(M)      ((M)->flags &= ~NONCONTIGUOUS_BIT)
+#define contiguous(M)          ((M->flags &   NONCONTIGUOUS_BIT) == 0)
+#define set_noncontiguous(M)    (M->flags |=  NONCONTIGUOUS_BIT)
+#define set_contiguous(M)       (M->flags &= ~NONCONTIGUOUS_BIT)
 
 
 /* ----------- Internal state representation and initialization ----------- */
@@ -525,7 +525,6 @@ static struct malloc_state main_arena =
 };
 
 /* There is only one instance of the malloc parameters.  */
-
 static struct malloc_par mp_ = {
   .top_pad = DEFAULT_TOP_PAD,
   .n_mmaps_max = DEFAULT_MMAP_MAX,
@@ -549,8 +548,7 @@ static struct malloc_par mp_ = {
   - This is called from __ptmalloc_init() or _int_new_arena()
     when creating a new arena.
 */
-
-static void malloc_init_state (mstate av)
+static void malloc_init_state(mstate av)
 {
   int i;
   mbinptr bin;
@@ -578,19 +576,19 @@ static int   systrim(size_t, mstate);
 
 /* This function is called from the arena shutdown 
    hook, to free the thread cache (if it exists). */
-static void tcache_thread_shutdown (void);
+static void tcache_thread_shutdown(void);
 
 /* ------------------ Testing support ----------------------------------*/
 
 static int perturb_byte;
 
-static void alloc_perturb (char *p, size_t n){
+static void alloc_perturb(char *p, size_t n){
   if (__glibc_unlikely (perturb_byte)){
     memset (p, perturb_byte ^ 0xff, n);
   }
 }
 
-static void free_perturb (char *p, size_t n){
+static void free_perturb(char *p, size_t n){
   if (__glibc_unlikely (perturb_byte)){
     memset (p, perturb_byte, n);
   }
@@ -602,7 +600,7 @@ static void free_perturb (char *p, size_t n){
 /* ----------- Routines dealing with transparent huge pages ----------- */
 
 static __always_inline void
-thp_init (void){
+thp_init(void){
   /* Initialize only once if DEFAULT_THP_PAGESIZE is defined.  */
   if (DEFAULT_THP_PAGESIZE == 0 || mp_.thp_mode != malloc_thp_mode_not_supported)
     return;
@@ -614,7 +612,7 @@ thp_init (void){
 }
 
 static inline void
-madvise_thp (void *p, INTERNAL_SIZE_T size)
+madvise_thp(void *p, INTERNAL_SIZE_T size)
 {
 #ifdef MADV_HUGEPAGE
 
@@ -952,7 +950,9 @@ do_check_malloc_state (mstate av)
     layout as regular chunks.
 */
 static void* sysmalloc_mmap(
-  INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags
+  INTERNAL_SIZE_T nb, 
+  size_t pagesize, 
+  int extra_flags
 ){
   size_t padding = MALLOC_ALIGNMENT - CHUNK_HDR_SZ;
   size_t size = ALIGN_UP(nb + padding + CHUNK_HDR_SZ, pagesize);
@@ -992,8 +992,10 @@ static void* sysmalloc_mmap(
 */
 static void*
 sysmalloc_mmap_fallback(
-  size_t *s, size_t size, size_t minsize,
-	size_t pagesize, int extra_flags
+  size_t *s, size_t size, 
+  size_t minsize,
+	size_t pagesize, 
+  int extra_flags
 ){
   size = ALIGN_UP(size, pagesize);
 
@@ -1509,9 +1511,8 @@ sysmalloc(INTERNAL_SIZE_T nb, mstate av)
     exceeds the trim threshold.
   - It is also called by the public malloc_trim routine. It
     returns 1 if it actually released any memory, else 0.
- */
-
-static int systrim (size_t pad, mstate av)
+*/
+static int systrim(size_t pad, mstate av)
 {
   long top_size;         /* Amount of top-most memory */
   long extra;            /* Amount to release */
@@ -1574,7 +1575,7 @@ static int systrim (size_t pad, mstate av)
   return 0;
 }
 
-static void munmap_chunk (mchunkptr p){
+static void munmap_chunk(mchunkptr p){
   size_t pagesize = GLRO(dl_pagesize);
 
   assert(chunk_is_mmapped(p));
@@ -1612,7 +1613,7 @@ static void munmap_chunk (mchunkptr p){
 #if HAVE_MREMAP
 
 static mchunkptr
-mremap_chunk (mchunkptr p, size_t new_size)
+mremap_chunk(mchunkptr p, size_t new_size)
 {
   bool is_hp = mmap_is_hp (p);
   size_t pagesize = is_hp ? mp_.hp_pagesize : GLRO (dl_pagesize);
@@ -2022,7 +2023,7 @@ tcache_init (mstate av)
 static void
 tcache_thread_shutdown (void)
 {
-  /* Nothing to do if there is no thread cache.  */
+  /* Nothing to do if there is no thread cache. */
 }
 
 #endif /* !USE_TCACHE  */
