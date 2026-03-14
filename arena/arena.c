@@ -25,13 +25,13 @@
 
 /* Compile-time constants.  */
 
-#define HEAP_MIN_SIZE (32 * 1024)
+#define HEAP_MIN_SIZE    (32 * 1024)
 
 #ifndef HEAP_MAX_SIZE
 # ifdef DEFAULT_MMAP_THRESHOLD_MAX
-#  define HEAP_MAX_SIZE (2 * DEFAULT_MMAP_THRESHOLD_MAX)
+#  define HEAP_MAX_SIZE    (2 * DEFAULT_MMAP_THRESHOLD_MAX)
 # else
-#  define HEAP_MAX_SIZE (1024 * 1024) /* must be a power of two */
+#  define HEAP_MAX_SIZE    (1024 * 1024)    /* must be a power of two */
 # endif
 #endif
 
@@ -267,7 +267,7 @@ static void tcache_key_initialize (void);
 void __ptmalloc_init(void)
 {
 #if USE_TCACHE
-  tcache_key_initialize ();
+  tcache_key_initialize();
 #endif
 
 #ifdef USE_MTAG
@@ -287,23 +287,22 @@ void __ptmalloc_init(void)
 
 #if defined SHARED && IS_IN (libc)
   /* In case this libc copy is in a non-default namespace, never use
-     brk.  Likewise if dlopened from statically linked program.  The
+     brk. Likewise if dlopened from statically linked program. The
      generic sbrk implementation also enforces this, but it is not
-     used on Hurd.  */
+     used on Hurd. */
   if (!__libc_initial)
     __always_fail_morecore = true;
 #endif
 
-  /* Enable THP if DEFAULT_THP_PAGESIZE is non-zero. Avoid quering the THP
-     page size or mode since accessing /sys/kernel/mm is relatively slow and
-     might not be accessible in containers. */
+  /* Enable THP if DEFAULT_THP_PAGESIZE is non-zero. Avoid quering 
+     the THP page size or mode since accessing /sys/kernel/mm is 
+     relatively slow and might not be accessible in containers. */
   if (DEFAULT_THP_PAGESIZE > 0){
     mp_.thp_mode = malloc_thp_mode_madvise;
     mp_.thp_pagesize = DEFAULT_THP_PAGESIZE;
   }
 
   thread_arena = &main_arena;
-
   malloc_init_state(&main_arena);
 
   TUNABLE_GET (top_pad,        size_t,  TUNABLE_CALLBACK (set_top_pad));
@@ -327,7 +326,7 @@ void __ptmalloc_init(void)
        smaller than the large page will also try to use large pages 
        by falling back to sysmalloc_mmap_fallback on sysmalloc. */
     if (!TUNABLE_IS_INITIALIZED (mmap_threshold))
-      do_set_mmap_threshold (mp_.hp_pagesize);
+      do_set_mmap_threshold(mp_.hp_pagesize);
 
     __always_fail_morecore = true;
   }
@@ -596,20 +595,20 @@ static int heap_trim(heap_info *heap, size_t pad)
     p = chunk_at_offset(prev_heap, prev_size);
 
     /* fencepost must be properly aligned. */
-    misalign = ((long) p) & MALLOC_ALIGN_MASK;
+    misalign = ((long)p) & MALLOC_ALIGN_MASK;
     p = chunk_at_offset(prev_heap, prev_size - misalign);
-    assert (chunksize_nomask (p) == (0 | PREV_INUSE)); /* must be fencepost */
+    assert (chunksize_nomask(p) == (0 | PREV_INUSE));    /* must be fencepost */
 
     p = prev_chunk(p);
     new_size = chunksize(p) + (MINSIZE - 2 * SIZE_SZ) + misalign;
-    assert (new_size > 0 && new_size < (long) (2 * MINSIZE));
+    assert (new_size > 0 && new_size < (long)(2 * MINSIZE));
 
     if (!prev_inuse(p))
-      new_size += prev_size (p);
+      new_size += prev_size(p);
 
     assert (new_size > 0 && new_size < max_size);
     if (new_size + (max_size - prev_heap->size) < pad + MINSIZE + heap->pagesize)
-        break;
+      break;
 
     ar_ptr->system_mem -= heap->size;
     LIBC_PROBE(memory_heap_free, 2, heap, heap->size);
@@ -638,7 +637,7 @@ static int heap_trim(heap_info *heap, size_t pad)
   /* Uses similar logic for per-thread arenas as the main arena 
      with systrim and _int_free by preserving the top pad and 
      rounding down to the nearest page. */
-  top_size = chunksize (top_chunk);
+  top_size = chunksize(top_chunk);
   if ((unsigned long)(top_size) < (unsigned long)(mp_.trim_threshold))
     return 0;
 
@@ -652,13 +651,16 @@ static int heap_trim(heap_info *heap, size_t pad)
     return 0;
 
   /* Try to shrink. */
-  if (shrink_heap (heap, extra) != 0)
+  if (shrink_heap(heap, extra) != 0)
     return 0;
 
   ar_ptr->system_mem -= extra;
 
   /* Success. Adjust top accordingly. */
-  set_head (top_chunk, (top_size - extra) | PREV_INUSE);
+  set_head(
+    top_chunk, 
+    (top_size-extra) | PREV_INUSE
+  );
 
   /*check_chunk(ar_ptr, top_chunk);*/
   return 1;
