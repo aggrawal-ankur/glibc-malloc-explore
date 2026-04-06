@@ -3,7 +3,7 @@ A complete description of glibc-malloc
 
 - [Introduction To Userspace Memory Allocators](#introduction-to-userspace-memory-allocators)
   - [The Problems](#the-problems)
-- [Groundwork](#groundwork)
+- [Groundwork (Incomplete)](#groundwork-incomplete)
 - [Chunk Description](#chunk-description)
   - [Layout Description](#layout-description)
   - [Usage Description](#usage-description)
@@ -11,7 +11,6 @@ A complete description of glibc-malloc
   - [Coalescing](#coalescing)
     - [The second use of 'mchunk\_size'](#the-second-use-of-mchunk_size)
     - [The Boundary Tag Method](#the-boundary-tag-method)
-    - [Important Note](#important-note)
   - [The Size Model](#the-size-model)
     - [The use of size\_t](#the-use-of-size_t)
     - [Macro #1 -\> `SIZE_SZ`](#macro-1---size_sz)
@@ -112,7 +111,7 @@ Before we dive into the details, I want to acknowledge the problems I have incur
 
 Let's start with the groundwork.
 
-# Groundwork
+# Groundwork (Incomplete)
 
 All the virtual memory is released by the kernel. The kernel releases memory in pages.
 
@@ -377,8 +376,7 @@ Functionally ->          [ Chunk1                                       ] [ Chun
 
 ***The mchunk_prev_size of the n<sup>th</sup> chunk is "by-use" a part of the (n-1)<sup>th</sup>chunk. Structurally, it is still a part of the n<sup>th</sup> chunk.*** This is boundary tag method in implementation.
 
-### Important Note
----
+-- **Important Note** --
 
 ***Again, as someone new to this, the design is not beginner-friendly at all. If you can't understand it in your first attempt, don't worry. What you are reading is months of work and a result of multiple rewrites.***
 
@@ -530,7 +528,7 @@ It defines the minimum alignment for in-use chunks.
 ```c
 #define MALLOC_ALIGNMENT  (                   \
   (2 * SIZE_SZ) < __alignof__(long double)    \
-	? __alignof__(long double)                  \
+  ? __alignof__(long double)                  \
   : 2 * SIZE_SZ
 )
 ```
