@@ -3,6 +3,7 @@ A complete description of glibc-malloc
 
 - [Introduction To Userspace Memory Allocators](#introduction-to-userspace-memory-allocators)
   - [The Problems](#the-problems)
+- [Scope and Reproducibility](#scope-and-reproducibility)
 - [Groundwork (Incomplete)](#groundwork-incomplete)
 - [Chunk Description](#chunk-description)
   - [Layout Description](#layout-description)
@@ -107,6 +108,57 @@ Before we dive into the details, I want to acknowledge the problems I have incur
 **Problem2: A concept can't be explained fully in the moment.**
   - I simply acknowledge it and ensure that the concept is properly explained later and the explanation is not hidden or buried under paragraphs.
 
+# Scope and Reproducibility
+
+It is a common pitfall to assume the `glibc` running on a standard Linux distribution (like Ubuntu or Fedora) is identical to the upstream source code hosted by the GNU Project. Distributions prioritize stability. They often "freeze" older glibc versions and apply custom backports, security patches, and compiler flags.
+
+If you attempt to follow this guide using your host OS's default `malloc`, you will likely encounter mismatched source code line numbers and legacy structures that have been phased out of modern upstream code.
+
+This writeup completely focuses on the upstream glibc-malloc, maintained by the GNU project. Because it is an active project, receiving updates all the time, this writeup is anchored at a stable release, called **glibc-2.43** (the current release-tag), which was released on **January 23, 2026**.
+
+---
+
+To ensure **100% reproducibility**, we will setup a lab environment using Docker.
+  - **Base Image:** `debian:trixie`.
+  - **glibc-version:** glibc-2.43
+  - **Commit-id as per the release tag:** `f762ccf84f122d1354f103a151cba8bde797d521`
+  - **Commit details:** [sourceware.org](https://sourceware.org/git/?p=glibc.git;a=commit;h=f762ccf84f122d1354f103a151cba8bde797d521) 
+
+**Step1:** Clone this repository on your system.
+```bash
+git clone https://github.com/aggrawal-ankur/systems-dives.git /repo
+```
+
+**Step2:** Use the Dockerfile in `./glibc-malloc/` to setup the container image.
+```bash
+cd /repo/glibc-malloc/
+sudo docker build -t glibc-exp-img .
+```
+
+**Step3:** Setup a container using the custom image.
+```bash
+sudo docker run -it --name explore-glibc  glibc-exp-img:latest bash
+```
+
+**Step4:** The `/experiment-dir/` is where all the source code for the experiments is. It also contains build scripts to ensure seamless setup of the experiments.
+
+**Step5:** To confirm the build succeeded:
+```bash
+$ /opt/glibc-2.43/lib/libc.so.6 --version
+
+GNU C Library (GNU libc) stable release version 2.43.
+Copyright (C) 2026 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
+Compiled by GNU CC version 14.2.0.
+libc ABIs: UNIQUE IFUNC ABSOLUTE
+Minimum supported kernel: 3.2.0
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/libc/bugs.html>.
+```
+  - It should print **2.43**.
+
 ---
 
 Let's start with the groundwork.
@@ -128,11 +180,7 @@ To track memory, the allocator has to manage a bookkeeping. The bookkeeping stra
 This writeup explores how glibc-malloc manages this bookkeeping.
 
 
-
-
 TO BE CONTINUED
-
-
 
 
 # Chunk Description
@@ -675,7 +723,7 @@ Let's take an example on 64-bit architecture: `malloc(20)`.
     ```
   - That dummy chunk has a name. **The top chunk** is a special chunk that sits after all the malloced chunk. We'll talk about it later in detail.
 
-So, request2size deliberately leaves out SIZE_SZ bytes of memory because that is always internally resolved by the top chunk.
+So, request2size deliberately leaves out SIZE_SZ bytes of memory in every chunk because the payload memory of a chunk is allowed to "spill over" and occupy the prev_size of the next chunk. For the last allocated chunk, the prev_size is provided by the top chunk.
 
 ### Macro #8 -> chunk2mem
 
