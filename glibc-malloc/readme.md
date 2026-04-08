@@ -2,7 +2,7 @@ A complete description of glibc-malloc
 ---
 
 - [Introduction To Userspace Memory Allocators](#introduction-to-userspace-memory-allocators)
-  - [The Problems](#the-problems)
+- [The Problems](#the-problems)
 - [Scope and Reproducibility](#scope-and-reproducibility)
 - [Groundwork (Incomplete)](#groundwork-incomplete)
 - [Chunk Description](#chunk-description)
@@ -22,6 +22,11 @@ A complete description of glibc-malloc
     - [Macro #6 -\> MINSIZE](#macro-6---minsize)
     - [Macro #7 -\> request2size](#macro-7---request2size)
     - [Macro #8 -\> chunk2mem](#macro-8---chunk2mem)
+- [Binning, The Bookkeeping Process (Actively writing)](#binning-the-bookkeeping-process-actively-writing)
+  - [Smallbins and Unsorted Bin](#smallbins-and-unsorted-bin)
+    - [Inconsistency #1](#inconsistency-1)
+    - [Indexing in `bins[]`](#indexing-in-bins)
+    - [Experiment #1](#experiment-1)
 ---
 
 # Introduction To Userspace Memory Allocators
@@ -90,7 +95,7 @@ This writeup aims to be a complete description of glibc-malloc, which is the def
 
 Before we dive into the details, I want to acknowledge the problems I have incurred while writing this document and the way I have dealt with them.
 
-## The Problems
+# The Problems
 
 **Problem0: The original source code is always receiving changes by contributors and maintainers. As a result, it is not formatted for readability.**
   - To solve this, I have formatted the source code and all the code snippets quote the formatted source. The logic remains untouched.**
@@ -126,7 +131,7 @@ To ensure **100% reproducibility**, we will setup a lab environment using Docker
 
 **Step1:** Clone this repository on your system.
 ```bash
-git clone https://github.com/aggrawal-ankur/systems-dives.git /repo
+git clone https://github.com/aggrawal-ankur/systems-dives.git    /repo
 ```
 
 **Step2:** Use the Dockerfile in `./glibc-malloc/` to setup the container image.
@@ -314,6 +319,8 @@ Method2 is how glibc does it.
 
 ---
 
+**Important Note**
+
 As someone new to this, the design is not very beginner-friendly. If you can't understand it in your first attempt, remember this, I've invested weeks to understand every part of glibc-malloc, fighting this design. The document you are reading is a result of multiple rewrites.
 
 A lot of times, we prevent ourselves from understanding the author's design because, we think that the problem should be solved in a certain different way. This is completely an unconscious act, which is why we are not aware of it.
@@ -394,7 +401,7 @@ Here is a description of these bits.
 
 ---
 
-Right now, only the 0th bit concerns us. The remaining two bits are discussed later
+Right now, only the 0th bit concerns us. The remaining two bits are discussed later.
 
 Now we can implement coalescing through the boundary tag method.
 
@@ -542,6 +549,8 @@ It stands for "chunk header size", which refers to the metadata bytes that sit a
 
 **Note: It refers to the structural overhead, not the functional overhead. Because, if it were functional, we wouldn't have count mchunk_prev_size, as it is a property of the previous chunk.**
 
+---
+
 ### Macro #3 -> MIN_CHUNK_SIZE
 
 It is the size of the "structurally" smallest possible chunk in an architecture.
@@ -657,6 +666,8 @@ It is used in a variety of bitwise operations.
 | 64-bit   | 15 |
 | INTERNAL_SIZE_T=4 | 15 |
 
+---
+
 ### Macro #6 -> MINSIZE
 
 It is the smallest size that malloc supports.
@@ -681,6 +692,8 @@ In INTERNAL_SIZE_T=4, the metadata overhead is 24 bytes, but 24 is not aligned t
 In the MIN_CHUNK_SIZE section, we have seen that it is the size of the structurally smallest chunk possible in an architecture. MINSIZE is the actual smallest chunk size possible in an architecture after adding alignment constraints.
 
 The values happen to be equal in the first two configurations because the struct layout aligned with the alignment constraints. That broke with INTERNAL_SIZE_T=4.
+
+---
 
 ### Macro #7 -> request2size
 
@@ -725,6 +738,8 @@ Let's take an example on 64-bit architecture: `malloc(20)`.
 
 So, request2size deliberately leaves out SIZE_SZ bytes of memory in every chunk because the payload memory of a chunk is allowed to "spill over" and occupy the prev_size of the next chunk. For the last allocated chunk, the prev_size is provided by the top chunk.
 
+---
+
 ### Macro #8 -> chunk2mem
 
 `chunk2mem` takes a pointer to a chunk, casts it to `char*` (for pointer arithmetic) and add "chunk header size" to it.
@@ -737,3 +752,187 @@ This will land us at the `fd` field in the struct, where the payload memory star
 ---
 
 ***That's what the author probably meant when he said, "This struct declaration is misleading (but accurate and necessary)."***
+
+
+Now that we understand chunks, let's explore how freed chunks are managed, basically, **the bookkeeping process**.
+
+---
+
+# Binning, The Bookkeeping Process (Actively writing)
+
+**Important Note**
+  - The whole implementation of bins is filled with inconsistencies. The annotations and the macros are not converging.
+  - When I was trying to build the exact structure of bins, I have gone through a lot of frustration and agitation. Sometimes, the inconsistencies would simply not make sense in a project like this.
+  - The description of bins could have been shorter and simpler iff those inconsistencies were absent. Right now, it includes dynamic analysis in substantial amount to verify the reality at runtime.
+  - Therefore, if you are perplexed at any moment, questioning "whether I am putting enough efforts", remember, the writer of this writeup has gone through them as well and what you are reading is a culmination of an understanding formed with multiple rewrites.
+
+---
+
+***A bin is a data structure, based on "circular doubly linked lists", used to manage free chunks.***
+
+**Note: The size that a bin manages includes alignment.**
+
+Conceptually, we have three class of bins: **smallbins** for small chunks, **largebins** for large chunks and a bin to hold chunks temporarily, called **unsorted bin**. But at the implementation level, we have **only one** data structure representing both class of bins. It is defined in malloc_state as:
+```c
+typedef  struct malloc_chunk*  mchunkptr
+
+mchunkptr bins[NBINS * 2 - 2];
+```
+  - `bins[]` store the head and tail pointers of a list. For this reason, the number of bins is multiplied by 2.
+  - The reason we subtract 2 is discussed shortly.
+
+Based on the macros and the annotations, we have 128 bins, of which, 64 are smallbins and 64 are largebins.
+```c
+#define NBINS             128
+#define NSMALLBINS        64
+```
+
+i.e,
+```c
+// mchunkptr bins[128 * 2 - 2];
+mchunkptr bins[254];
+```
+
+Let's derive the exact structure of bins[].
+
+## Smallbins and Unsorted Bin
+
+Small bins manage chunks of specific size classes while large bins manage chunks falling in specific size ranges.
+
+The state of smallbins is influenced by MALLOC_ALIGNMENT and MINSIZE.
+  - The size that a smallbin manages and the distance b/w two smallbins is decided by MALLOC_ALIGNMENT. That means, bins on 32-bit will be like {...., 48, 56, 64, 72} and the bins on 64-bit will be like {...., 48, 64, 80, 96, ....}. This is formally represented by SMALLBIN_WIDTH.
+  ```c
+  #define  SMALLBIN_WIDTH  MALLOC_ALIGNMENT
+  ```
+  - The minimum size we have a smallbin for is decided by MINSIZE. That means, the first smallbin on 64-bit is for 32 bytes and on 32-bit, it is 16 bytes.
+
+---
+
+**What is the threshold for a size to be small?**
+  - The annotations do mention the threshold for smallbins on 32-bit, *quite-loosely, though*, but skips 64-bit entirely.
+  - However, MIN_LARGE_SIZE answers it.
+
+*MIN_LARGE_SIZE is the smallest largebin possible in an architecture.*
+
+Based on these macros, we can calculate MIN_LARGE_SIZE.
+```c
+#define SMALLBIN_WIDTH          MALLOC_ALIGNMENT    // The distance b/w two small bins.
+#define SMALLBIN_CORRECTION    (MALLOC_ALIGNMENT > CHUNK_HDR_SZ)
+#define MIN_LARGE_SIZE         ((NSMALLBINS - SMALLBIN_CORRECTION) * SMALLBIN_WIDTH)
+```
+  - As usual, SMALLBIN_CORRECTION is primarily important in the third configuration. We will discuss this later.
+
+| Config # | SMALLBIN_WIDTH | SMALLBIN_CORRECTION | MIN_LARGE_SIZE |
+| :------- | :------------- | :------------------ | :------------- |
+| 32-bit |  8 | 0 | (64-0)*8 = 512 bytes |
+| 64-bit | 16 | 0 | (64-0)*16 = 1024 bytes |
+| INTERNAL_SIZE_T=4 | 16 | 1 | (64-1)*16 = 1008 bytes | 
+
+---
+
+Now that we know the threshold, let's list all the smallbin size classes. We can use python for this.
+```py
+# main.py
+
+print("# 32-bit")
+for i in range(64):
+  print(i*8, end=", ")
+print("\n")
+
+print("# 64-bit")
+for i in range(64):
+  print(i*16, end=", ")
+print("\n")
+```
+
+The output:
+```bash
+$ python3 main.py
+
+# 32-bit
+0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 
+
+# 64-bit
+0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512, 528, 544, 560, 576, 592, 608, 624, 640, 656, 672, 688, 704, 720, 736, 752, 768, 784, 800, 816, 832, 848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 
+```
+
+Let's consider two things.
+  1. Does a chunk of size 0 bytes make sense?
+  2. We know that the smallest size for a chunk in an architecture is defined by MINSIZE. If a size, after accounting for alignment, is less than MINSIZE, we get a chunk of size MINSIZE. Does the presence of the second bin in the above two lists (8 on 32-bit and 16 on 64-bit) makes sense?
+
+The answer to both the questions is a straightforward NO. Now we need to see how it is actually managed.
+
+### Inconsistency #1
+
+As per this annotation:
+```
+Bin 0 does not exist. Bin 1 is the unordered list; if that 
+would be a valid chunk size the small bins are bumped up one.
+```
+bin0 doesn't exist and bin1 is the unsorted bin.
+
+There are two possible interpretations of this annotation.
+  1. Bin0 doesn't exist.
+  2. Bin0 exists, but is dormant.
+
+#2 doesn't seem to be the case and #1 means the count of smallbins is 63. That's the first inconsistency about bins. It is said that bin1 is repurposed as **the unsorted bin**, but there is no clarity about the 0th bin.
+
+Now we have to use gdb to find which hypothesis is the runtime reality. But before we do that, we have to understand the structure of `bins[]` a little more.
+
+### Indexing in `bins[]`
+
+The `bins` array is just a collection of `malloc_chunk*`. To use them to represent pointers to the first and the last chunk in a free list, we have to use what the author calls "repositioning tricks".
+```
+To simplify use in double-linked lists, each bin header acts as 
+a malloc_chunk. This avoids special-casing for headers. But to 
+conserve space and improve locality, we allocate only the fd/bk 
+pointers of bins, and then use repositioning tricks to treat 
+these as the fields of a malloc_chunk*.
+```
+
+The idea is that each pointer in `bins[]` is a fake malloc_chunk, whose fd/bk fields are pointers to the first and the last chunks in the free list.
+
+For the time, let's suppose that bins contains 5 bins. This is how `bins[]` would look like:
+```c
+mchunkptr bins[10] = {
+  bin0_fd, bin0_bk,
+  bin1_fd, bin1_bk,
+  bin2_fd, bin2_bk,
+  bin3_fd, bin3_bk,
+  bin4_fd, bin4_bk,
+}
+```
+
+If bin0_fd represents the first chunk in the bin0 linked list and we get a pointer to a memory represented by `(bin0_fd - 2*INTERNAL_SIZE_T)`, we can use that memory to represent a fake malloc_chunk, whose fd/bk offsets will land exactly at bin0_fd/bin0_bk.
+
+Let's take this example on 64-bit:
+```c
+mchunkptr bins[10] = {
+  1008:bin0_fd,
+  1016:bin0_bk,
+  1024:bin1_fd,
+  1032:bin1_bk,
+  1040:bin2_fd,
+  1048:bin2_bk,
+  1056:bin3_fd,
+  1064:bin3_bk,
+  1072:bin4_fd,
+  1080:bin4_bk,
+}
+```
+The numbers represent memory addresses.
+
+If we do the following operation:
+```c
+mchunkptr x = (mchunkptr) (char*)(&bins[0]-16)
+```
+x will point to a fake malloc_chunk starting from 992. When we check the fd of this fake chunk, we get the address to the first chunk in the list.
+
+
+### Experiment #1
+
+**Setup:** Setup the docker environment and head to `/experiment-dir/` if not already. The source code for this experiment is in exp1.c.
+
+**Objective:** Establish clarity on what happens to bin0.
+
+**Hypothesis:** Bin0 is the unsorted bin and bin1 marks the start of smallbins.
