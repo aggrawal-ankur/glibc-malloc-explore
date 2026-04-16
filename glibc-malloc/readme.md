@@ -33,6 +33,12 @@ A complete description of glibc-malloc
   - [Finding the solution](#finding-the-solution)
   - [Implementing the solution](#implementing-the-solution)
   - [Some concerns](#some-concerns)
+- [The Bookkeeping System, Part 2: The structure of bins\[\]](#the-bookkeeping-system-part-2-the-structure-of-bins)
+  - [The state of smallbins](#the-state-of-smallbins)
+    - [How size classes are decided for smallbins?](#how-size-classes-are-decided-for-smallbins)
+    - [What is the threshold that separates smallbins and largebins?](#what-is-the-threshold-that-separates-smallbins-and-largebins)
+    - [What should be the smallest/first smallbin in an architecture?](#what-should-be-the-smallestfirst-smallbin-in-an-architecture)
+  - [The state of largebins](#the-state-of-largebins)
 ---
 
 # Introduction To Userspace Memory Allocators
@@ -978,7 +984,7 @@ malloc_state, which is where the bins[] is allocated, goes on the static storage
 
 However, we have to be cautious about this kind of pointer arithmetic as it touches a piece of memory which might hold crucial information.
   - If the arithmetic failed and we overwrite that memory, we are officially in the undefined behavior territory, be it overwriting 8 bytes before the listHeaders[], or any listHeaders[i*2] that is supposed to lead us to the headers corresponding to a bin.
-  - But we ensure that it doesn't happen.
+  - But we ensure that it doesn't happen by using that pointer only for offsetting to the right the headers; we never-ever use that address to write something.
 
 ---
 
@@ -997,6 +1003,140 @@ If you have understood the above story, congratulations, you have understood thi
 
 The whole story above is what the author meant by "repositioning tricks".
 
+`bin_at` is the macro that operationalize this repositioning trick, but understanding it requires concepts that I have not introduced yet. We will explore this in the next section.
+
 ---
 
-So, to answer how `bins` are implemented, ***they are implemented as an array of bin headers of type mchunkptr (malloc_chunk\*). "Repositioning tricks" are used to find the correct bin.***
+So to answer how `bins` are implemented, ***they are implemented as an array of bin headers of type mchunkptr (malloc_chunk\*) and "repositioning tricks" are used to find the correct bin.***
+
+Now you know why a `List*` array is not suitable. It creates hurdles in implementing that "repositioning trick". However, a `List` array might make sense because, internally, it is just `Node*` elements. But in this case, it would simply be an abstraction that is no longer required.
+
+# The Bookkeeping System, Part 2: The structure of bins[]
+
+Before we start exploring this section, I want to make something clear.
+  - The whole implementation of bins is filled with inconsistencies. The annotations and the macros are not converging.
+  - When I was trying to build the exact structure of bins, I have gone through a lot of frustration and agitation. Sometimes, the inconsistencies would simply not make sense in a project like this.
+  - The description of bins could have been shorter and simpler iff those inconsistencies were absent.
+  - So, this section is largely about verifying the claims made by the annotations and the actual implementation in the code by the means of dynamic analysis using gdb. For this reason, you might feel a difference in the language, as I can't make a direct claim about anything, so I refer to the formatted source.
+  - Because the situation is very complex, it is best to keep the INTERNAL_SIZE_T=4 case to be discussed in the end.
+  - Therefore, if you are perplexed at any moment, questioning "whether I am putting enough efforts", remember, the writer of this writeup has asked such questions as well. Frustration and agitation is simply a part of exploring this section.
+
+## The state of smallbins
+
+As per the annotations,
+  - and the `NBINS` macro, the total number of bins is 128 and `bins[]` is declared this way inside malloc_state:
+    ```c
+    #define  NBINS  128
+
+    // mchunkptr bins[NBINS * 2 - 2];
+    typedef struct malloc_chunk* mchunkptr
+    mchunkptr bins[(NBINS*2) - 2];
+    ```
+    That's inconsistency #1. **The total number of bins is 127 not 128.**
+
+  - and the NSMALLBINS macro, there are 64 smallbins.
+    ```c
+    #define  NSMALLBINS  64
+    ```
+
+There is no direct mention of large bin count, but we can assume that what remains after smallbins is largebins. So, there are 64 largebins. What about the unsorted bin?
+
+These annotations open about the state of the unsorted bin, but I am not sure how to interpret them.
+```
+  Bin 0 does not exist. Bin 1 is the unordered list; if that 
+  would be a valid chunk size the small bins are bumped up one.
+
+  The otherwise unindexable 1-bin is used to hold unsorted chunks.
+```
+
+*Bin 0 doesn't exist.* What does it imply?
+  - Is that the reason why we have 127 bins in total? Or,
+  - It exist, but has no function?
+
+*Bin 1 is the unsorted list.* That means, the real number of smallbins is either 63 or 62, not 64? That's inconsistency #2.
+
+*if that would be a valid chunk size the small bins are bumped up one.* What does that imply?
+  - Why there is an `if` in the first place?
+  - Do we have no clarity about whether that size is a valid chunk size? That's inconsistency #3.
+
+Even though the annotations use "bin 0" and "bin 1", there is no proper clarification that we index the bins with 0-based indexing. We have to check the indexing bins, which we will do shortly.
+
+---
+
+So far, the situation is this:
+  - We have bin 0, whose state we can't confirm.
+  - We have bin 1, which is an unsorted bin.
+  - We have 62/63 small bins, if we include the above 2 bins.
+  - When have 64 largebins.
+  - Since bins are conceptually divided into 3 types, which bin's count is reduced by 1? Small or large?
+
+### How size classes are decided for smallbins?
+---
+
+Using SMALLBIN_WIDTH. ***SMALLBIN_WIDTH defines the difference b/w two smallbins.***
+```c
+#define  SMALLBIN_WIDTH  MALLOC_ALIGNMENT
+```
+
+| Config # | SMALLBIN_WIDTH |
+| :------- | :------------- |
+| 32-bit |  8 bytes |
+| 64-bit | 16 bytes |
+| INTERNAL_SIZE_T=4 | 16 bytes |
+
+---
+
+### What is the threshold that separates smallbins and largebins?
+---
+
+It is MIN_LARGE_SIZE. ***MIN_LARGE_SIZE defines the size of the first largebin.***
+```c
+#define  SMALLBIN_CORRECTION     (MALLOC_ALIGNMENT > CHUNK_HDR_SZ)
+#define  MIN_LARGE_SIZE         ((NSMALLBINS - SMALLBIN_CORRECTION) * SMALLBIN_WIDTH)
+```
+
+***SMALLBIN_CORRECTION is 0 on both 32-bit and 64-bit. It's importance is in that third configuration, and we will discuss it there.***
+
+| Config # | MIN_LARGE_SIZE |
+| :------- | :------------- |
+| 32-bit | (64-0)*8  =  512 bytes |
+| 64-bit | (64-0)*16 = 1024 bytes |
+| INTERNAL_SIZE_T=4  | (64-1)*16 = 1008 bytes |
+
+---
+
+That means, (MIN_LARGE_SIZE-SMALLBIN_WIDTH) should give us the size of the last smallbin. That'd be 504 bytes on 32-bit and 1008 bytes on 64-bit.
+
+---
+
+### What should be the smallest/first smallbin in an architecture?
+---
+
+Although we probably know the answer, but nothing is straightforward here. We have the largest smallbin's size and the total number of smallbins, let's crawl back to the smallest/first smallbin. Let's do it on 32-bit.
+
+If there are 64 smallbins, they would be:
+```py
+x = 512
+for i in range(64):
+  x = x-8
+  print(x, end=", ")
+print()
+```
+
+The output:
+```
+504, 496, 488, 480, 472, 464, 456, 448, 440, 432, 424, 416, 408, 400, 392, 384, 376, 368, 360, 352, 344, 336, 328, 320, 312, 304, 296, 288, 280, 272, 264, 256, 248, 240, 232, 224, 216, 208, 200, 192, 184, 176, 168, 160, 152, 144, 136, 128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8, 0,
+```
+
+But a chunk of size 0 is not possible, and alignment constraints makes the minimum chunk size 16 bytes on 32-bit, so size class 8 is also not possible.
+
+The annotations say that bin0 doesn't exist and bin1 is reused as the unsorted bin. That means, there is 1 unsorted bin and 62 smallbins. That is the most reasonable interpretation of the smallbins situation.
+```
+504, 496, 488, 480, 472, 464, 456, 448, 440, 432, 424, 416, 408, 400, 392, 384, 376, 368, 360, 352, 344, 336, 328, 320, 312, 304, 296, 288, 280, 272, 264, 256, 248, 240, 232, 224, 216, 208, 200, 192, 184, 176, 168, 160, 152, 144, 136, 128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+```
+
+This nullifies the argument that "*if that would be a valid chunk size the small bins are bumped up one*". The first two size classes are clearly not valid or useful.
+
+Here comes an end to the smallbins situation. Let's talk about largebins now. They are even more interesting.
+
+## The state of largebins
