@@ -130,7 +130,7 @@ int initListHeaders(Node** listHdrs, int listCount){
 }
 
 int main(void){
-  long long int listCount = 10;
+  unsigned long listCount = 10;
   Node* listHeaders[listCount*2];
   initListHeaders(listHeaders, listCount);
 
