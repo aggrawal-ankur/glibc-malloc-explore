@@ -1539,10 +1539,10 @@ typedef struct malloc_chunk *mbinptr;
 
 #define smallbin_index(sz)    ( \
   ( \
-    (SMALLBIN_WIDTH == 16)      \
-    ? (((unsigned)(sz)) >> 4)   \
-    : (((unsigned) (sz)) >> 3)  \
-  ) + SMALLBIN_CORRECTION       \
+    (SMALLBIN_WIDTH == 16)     \
+    ? (((unsigned)(sz)) >> 4)  \
+    : (((unsigned)(sz)) >> 3)  \
+  ) + SMALLBIN_CORRECTION      \
 )
 
 #define largebin_index_32(sz)  ( \
@@ -4956,13 +4956,9 @@ __libc_mallinfo (void)
 }
 
 
-/*
-   ------------------------------ malloc_stats ------------------------------
- */
+/* ---------------------- malloc_stats ---------------------- */
 
-void
-__malloc_stats (void)
-{
+void __malloc_stats(void){
   int i;
   mstate ar_ptr;
   unsigned int in_use_b = mp_.mmapped_mem, system_b = in_use_b;
@@ -4970,89 +4966,103 @@ __malloc_stats (void)
   _IO_flockfile (stderr);
   int old_flags2 = stderr->_flags2;
   stderr->_flags2 |= _IO_FLAGS2_NOTCANCEL;
-  for (i = 0, ar_ptr = &main_arena;; i++)
-    {
-      struct mallinfo2 mi;
 
-      memset (&mi, 0, sizeof (mi));
-      __libc_lock_lock (ar_ptr->mutex);
-      int_mallinfo (ar_ptr, &mi);
-      fprintf (stderr, "Arena %d:\n", i);
-      fprintf (stderr, "system bytes     = %10u\n", (unsigned int) mi.arena);
-      fprintf (stderr, "in use bytes     = %10u\n", (unsigned int) mi.uordblks);
+  for (i = 0, ar_ptr = &main_arena;; i++){
+    struct mallinfo2 mi;
+
+    memset (&mi, 0, sizeof (mi));
+    __libc_lock_lock (ar_ptr->mutex);
+    int_mallinfo (ar_ptr, &mi);
+    fprintf (stderr, "Arena %d:\n", i);
+    fprintf (stderr, "system bytes     = %10u\n", (unsigned int) mi.arena);
+    fprintf (stderr, "in use bytes     = %10u\n", (unsigned int) mi.uordblks);
+
 #if MALLOC_DEBUG > 1
-      if (i > 0)
-        dump_heap (heap_for_ptr (top (ar_ptr)));
+    if (i > 0)
+      dump_heap (heap_for_ptr (top (ar_ptr)));
 #endif
-      system_b += mi.arena;
-      in_use_b += mi.uordblks;
-      __libc_lock_unlock (ar_ptr->mutex);
-      ar_ptr = ar_ptr->next;
-      if (ar_ptr == &main_arena)
-        break;
-    }
-  fprintf (stderr, "Total (incl. mmap):\n");
-  fprintf (stderr, "system bytes     = %10u\n", system_b);
-  fprintf (stderr, "in use bytes     = %10u\n", in_use_b);
-  fprintf (stderr, "max mmap regions = %10u\n", (unsigned int) mp_.max_n_mmaps);
-  fprintf (stderr, "max mmap bytes   = %10lu\n",
-           (unsigned long) mp_.max_mmapped_mem);
+
+    system_b += mi.arena;
+    in_use_b += mi.uordblks;
+
+    __libc_lock_unlock(ar_ptr->mutex);
+    ar_ptr = ar_ptr->next;
+    if (ar_ptr == &main_arena)
+      break;
+  }
+
+  fprintf(stderr, "Total (incl. mmap):\n");
+  fprintf(stderr, "system bytes     = %10u\n", system_b);
+  fprintf(stderr, "in use bytes     = %10u\n", in_use_b);
+  fprintf(stderr, "max mmap regions = %10u\n", (unsigned int) mp_.max_n_mmaps);
+  fprintf(stderr, "max mmap bytes   = %10lu\n", (unsigned long) mp_.max_mmapped_mem);
   stderr->_flags2 = old_flags2;
-  _IO_funlockfile (stderr);
+  _IO_funlockfile(stderr);
 }
 
 
-/*
-   ------------------------------ mallopt ------------------------------
- */
+/* --------------- mallopt --------------- */
+
 static __always_inline int
-do_set_trim_threshold (size_t value)
+do_set_trim_threshold(size_t value)
 {
-  LIBC_PROBE (memory_mallopt_trim_threshold, 3, value, mp_.trim_threshold,
-	      mp_.no_dyn_threshold);
+  LIBC_PROBE(
+    memory_mallopt_trim_threshold, 
+    3, value, mp_.trim_threshold,
+    mp_.no_dyn_threshold
+  );
   mp_.trim_threshold = value;
   mp_.no_dyn_threshold = 1;
   return 1;
 }
 
 static __always_inline int
-do_set_top_pad (size_t value)
+do_set_top_pad(size_t value)
 {
-  LIBC_PROBE (memory_mallopt_top_pad, 3, value, mp_.top_pad,
-	      mp_.no_dyn_threshold);
+  LIBC_PROBE(
+    memory_mallopt_top_pad,
+    3, value, mp_.top_pad,
+	  mp_.no_dyn_threshold
+  );
   mp_.top_pad = value;
   mp_.no_dyn_threshold = 1;
   return 1;
 }
 
 static __always_inline int
-do_set_mmap_threshold (size_t value)
+do_set_mmap_threshold(size_t value)
 {
-  LIBC_PROBE (memory_mallopt_mmap_threshold, 3, value, mp_.mmap_threshold,
-	      mp_.no_dyn_threshold);
+  LIBC_PROBE(
+    memory_mallopt_mmap_threshold, 
+    3, value, mp_.mmap_threshold,
+	  mp_.no_dyn_threshold
+  );
   mp_.mmap_threshold = value;
   mp_.no_dyn_threshold = 1;
   return 1;
 }
 
 static __always_inline int
-do_set_mmaps_max (int32_t value)
+do_set_mmaps_max(int32_t value)
 {
-  LIBC_PROBE (memory_mallopt_mmap_max, 3, value, mp_.n_mmaps_max,
-	      mp_.no_dyn_threshold);
+  LIBC_PROBE(
+    memory_mallopt_mmap_max, 
+    3, value, mp_.n_mmaps_max,
+	  mp_.no_dyn_threshold
+  );
   mp_.n_mmaps_max = value;
   mp_.no_dyn_threshold = 1;
   return 1;
 }
 
 static __always_inline int
-do_set_mallopt_check (int32_t value)
+do_set_mallopt_check(int32_t value)
 {
   return 1;
 }
 
 static __always_inline int
-do_set_perturb_byte (int32_t value)
+do_set_perturb_byte(int32_t value)
 {
   LIBC_PROBE (memory_mallopt_perturb, 2, value, perturb_byte);
   perturb_byte = value;
@@ -5060,7 +5070,7 @@ do_set_perturb_byte (int32_t value)
 }
 
 static __always_inline int
-do_set_arena_test (size_t value)
+do_set_arena_test(size_t value)
 {
   LIBC_PROBE (memory_mallopt_arena_test, 2, value, mp_.arena_test);
   mp_.arena_test = value;
@@ -5068,7 +5078,7 @@ do_set_arena_test (size_t value)
 }
 
 static __always_inline int
-do_set_arena_max (size_t value)
+do_set_arena_max(size_t value)
 {
   LIBC_PROBE (memory_mallopt_arena_max, 2, value, mp_.arena_max);
   mp_.arena_max = value;
@@ -5146,24 +5156,22 @@ do_set_hugetlb (size_t value)
   return 0;
 }
 
-int
-__libc_mallopt (int param_number, int value)
+int __libc_mallopt(int param_number, int value)
 {
   mstate av = &main_arena;
   int res = 1;
 
-  __libc_lock_lock (av->mutex);
+  __libc_lock_lock(av->mutex);
 
-  LIBC_PROBE (memory_mallopt, 2, param_number, value);
+  LIBC_PROBE(memory_mallopt, 2, param_number, value);
 
   /* Many of these helper functions take a size_t.  We do not worry
      about overflow here, because negative int values will wrap to
      very large size_t values and the helpers have sufficient range
      checking for such conversions.  Many of these helpers are also
-     used by the tunables macros in arena.c.  */
+     used by the tunables macros in arena.c. */
 
-  switch (param_number)
-    {
+  switch (param_number){
     case M_MXFAST:
       res = do_set_mxfast (value);
       break;
@@ -5205,16 +5213,12 @@ __libc_mallopt (int param_number, int value)
   __libc_lock_unlock (av->mutex);
   return res;
 }
-libc_hidden_def (__libc_mallopt)
+libc_hidden_def(__libc_mallopt)
 
 
-/*
-   -------------------- Alternative MORECORE functions --------------------
- */
+/* --------------- Alternative MORECORE functions --------------- */
 
-
-/*
-   General Requirements for MORECORE.
+/* General Requirements for MORECORE.
 
    The MORECORE function must have the following properties:
 
@@ -5347,19 +5351,18 @@ libc_hidden_def (__libc_mallopt)
  */
 
 
-/* Helper code.  */
+/* Helper code. */
 
 extern char **__libc_argv attribute_hidden;
 
-static void
-malloc_printerr (const char *str)
+static void malloc_printerr(const char *str)
 {
 #if IS_IN (libc)
-  __libc_message ("%s\n", str);
+  __libc_message("%s\n", str);
 #else
-  __libc_fatal (str);
+  __libc_fatal(str);
 #endif
-  __builtin_unreachable ();
+  __builtin_unreachable();
 }
 
 #if USE_TCACHE
@@ -5367,201 +5370,206 @@ malloc_printerr (const char *str)
 static volatile int dummy_var;
 
 static __attribute_noinline__ void
-malloc_printerr_tail (const char *str)
+malloc_printerr_tail(const char *str)
 {
   /* Ensure this cannot be a no-return function.  */
   if (dummy_var)
     return;
-  malloc_printerr (str);
+  malloc_printerr(str);
 }
 #endif
 
 #if IS_IN (libc)
-/* We need a wrapper function for one of the additions of POSIX.  */
-int
-__posix_memalign (void **memptr, size_t alignment, size_t size)
+
+/* We need a wrapper function for one of the additions of POSIX. */
+int __posix_memalign(void **memptr, size_t alignment, size_t size)
 {
   void *mem;
 
-  /* Test whether the SIZE argument is valid.  It must be a power of
-     two multiple of sizeof (void *).  */
-  if (alignment % sizeof (void *) != 0
-      || !powerof2 (alignment / sizeof (void *))
-      || alignment == 0)
+  /* Test whether the SIZE argument is valid.
+     It must be a power of two multiple of sizeof(void*). */
+  if (
+    (alignment % sizeof(void*) != 0) ||
+    !powerof2(alignment / sizeof(void*)) || 
+    alignment == 0
+  )
     return EINVAL;
 
+  mem = _mid_memalign(alignment, size);
 
-  mem = _mid_memalign (alignment, size);
-
-  if (mem != NULL)
-    {
-      *memptr = mem;
-      return 0;
-    }
+  if (mem != NULL){
+    *memptr = mem;
+    return 0;
+  }
 
   return ENOMEM;
 }
+
 weak_alias (__posix_memalign, posix_memalign)
 #endif
 
 
-int
-__malloc_info (int options, FILE *fp)
+int __malloc_info(int options, FILE *fp)
 {
-  /* For now, at least.  */
+  /* For now, at least. */
   if (options != 0)
     return EINVAL;
 
   int n = 0;
   size_t total_nblocks = 0;
-  size_t total_avail = 0;
-  size_t total_system = 0;
+  size_t total_avail   = 0;
+  size_t total_system  = 0;
   size_t total_max_system = 0;
-  size_t total_aspace = 0;
+  size_t total_aspace  = 0;
   size_t total_aspace_mprotect = 0;
 
   fputs ("<malloc version=\"1\">\n", fp);
 
   /* Iterate over all arenas currently in use.  */
   mstate ar_ptr = &main_arena;
-  do
+  do{
+    fprintf (fp, "<heap nr=\"%d\">\n<sizes>\n", n++);
+
+    size_t nblocks = 0;
+    size_t avail = 0;
+
+    struct{
+      size_t from;
+      size_t to;
+      size_t total;
+      size_t count;
+    } sizes[NBINS - 1];
+
+#define nsizes  (sizeof(sizes) / sizeof(sizes[0]))
+
+    __libc_lock_lock (ar_ptr->mutex);
+
+    /* Account for the top chunk. The top-most available chunk is
+    treated specially and is never in any bin. See "initial_top"
+	  comments. */
+    avail = chunksize (ar_ptr->top);
+    nblocks = 1;    /* Top always exists. */
+
+    mbinptr bin;
+    struct malloc_chunk *r;
+
+    for (size_t i = 1; i < NBINS; ++i){
+      bin = bin_at (ar_ptr, i);
+      r = bin->fd;
+      sizes[i - 1].from = ~((size_t) 0);
+  	  sizes[i - 1].to = sizes[i - 1].total = sizes[i - 1].count = 0;
+
+      if (r != NULL){
+        while (r != bin){
+          size_t r_size = chunksize_nomask (r);
+          ++sizes[i - 1].count;
+          sizes[i - 1].total += r_size;
+          sizes[i - 1].from = MIN (sizes[i - 1].from, r_size);
+          sizes[i - 1].to = MAX (sizes[i - 1].to, r_size);
+          r = r->fd;
+        }
+      }
+
+      if (sizes[i - 1].count == 0)
+        sizes[i - 1].from = 0;
+
+      nblocks += sizes[i - 1].count;
+      avail += sizes[i - 1].total;
+    }
+
+    size_t heap_size = 0;
+    size_t heap_mprotect_size = 0;
+    size_t heap_count = 0;
+    if (ar_ptr != &main_arena)
+
     {
-      fprintf (fp, "<heap nr=\"%d\">\n<sizes>\n", n++);
-
-      size_t nblocks = 0;
-      size_t avail = 0;
-      struct
-      {
-	size_t from;
-	size_t to;
-	size_t total;
-	size_t count;
-      } sizes[NBINS - 1];
-#define nsizes (sizeof (sizes) / sizeof (sizes[0]))
-
-      __libc_lock_lock (ar_ptr->mutex);
-
-      /* Account for top chunk.  The top-most available chunk is
-	 treated specially and is never in any bin. See "initial_top"
-	 comments.  */
-      avail = chunksize (ar_ptr->top);
-      nblocks = 1;  /* Top always exists.  */
-
-      mbinptr bin;
-      struct malloc_chunk *r;
-
-      for (size_t i = 1; i < NBINS; ++i)
-	{
-	  bin = bin_at (ar_ptr, i);
-	  r = bin->fd;
-	  sizes[i - 1].from = ~((size_t) 0);
-	  sizes[i - 1].to = sizes[i - 1].total
-					  = sizes[i - 1].count = 0;
-
-	  if (r != NULL)
-	    while (r != bin)
-	      {
-		size_t r_size = chunksize_nomask (r);
-		++sizes[i - 1].count;
-		sizes[i - 1].total += r_size;
-		sizes[i - 1].from
-		  = MIN (sizes[i - 1].from, r_size);
-		sizes[i - 1].to = MAX (sizes[i - 1].to,
-						   r_size);
-
-		r = r->fd;
-	      }
-
-	  if (sizes[i - 1].count == 0)
-	    sizes[i - 1].from = 0;
-	  nblocks += sizes[i - 1].count;
-	  avail += sizes[i - 1].total;
-	}
-
-      size_t heap_size = 0;
-      size_t heap_mprotect_size = 0;
-      size_t heap_count = 0;
-      if (ar_ptr != &main_arena)
-	{
-	  /* Iterate over the arena heaps from back to front.  */
-	  heap_info *heap = heap_for_ptr (top (ar_ptr));
-	  do
-	    {
+      /* Iterate over the arena heaps from back to front.  */
+      heap_info *heap = heap_for_ptr (top (ar_ptr));
+      do{
 	      heap_size += heap->size;
 	      heap_mprotect_size += heap->mprotect_size;
 	      heap = heap->prev;
 	      ++heap_count;
-	    }
-	  while (heap != NULL);
-	}
-
-      __libc_lock_unlock (ar_ptr->mutex);
-
-      total_nblocks += nblocks;
-      total_avail += avail;
-
-      for (size_t i = 1; i < nsizes; ++i)
-	if (sizes[i].count != 0)
-	  fprintf (fp, "\
-  <size from=\"%zu\" to=\"%zu\" total=\"%zu\" count=\"%zu\"/>\n",
-		   sizes[i].from, sizes[i].to, sizes[i].total, sizes[i].count);
-
-      if (sizes[0].count != 0)
-	fprintf (fp, "\
-  <unsorted from=\"%zu\" to=\"%zu\" total=\"%zu\" count=\"%zu\"/>\n",
-		 sizes[0].from, sizes[0].to,
-		 sizes[0].total, sizes[0].count);
-
-      total_system += ar_ptr->system_mem;
-      total_max_system += ar_ptr->max_system_mem;
-
-      fprintf (fp,
-	       "</sizes>\n"
-	       "<total type=\"rest\" count=\"%zu\" size=\"%zu\"/>\n"
-	       "<system type=\"current\" size=\"%zu\"/>\n"
-	       "<system type=\"max\" size=\"%zu\"/>\n",
-	        nblocks, avail, ar_ptr->system_mem, ar_ptr->max_system_mem);
-
-      if (ar_ptr != &main_arena)
-	{
-	  fprintf (fp,
-		   "<aspace type=\"total\" size=\"%zu\"/>\n"
-		   "<aspace type=\"mprotect\" size=\"%zu\"/>\n"
-		   "<aspace type=\"subheaps\" size=\"%zu\"/>\n",
-		   heap_size, heap_mprotect_size, heap_count);
-	  total_aspace += heap_size;
-	  total_aspace_mprotect += heap_mprotect_size;
-	}
-      else
-	{
-	  fprintf (fp,
-		   "<aspace type=\"total\" size=\"%zu\"/>\n"
-		   "<aspace type=\"mprotect\" size=\"%zu\"/>\n",
-		   ar_ptr->system_mem, ar_ptr->system_mem);
-	  total_aspace += ar_ptr->system_mem;
-	  total_aspace_mprotect += ar_ptr->system_mem;
-	}
-
-      fputs ("</heap>\n", fp);
-      ar_ptr = ar_ptr->next;
+	    } while (heap != NULL);
     }
-  while (ar_ptr != &main_arena);
 
-  fprintf (fp,
-	   "<total type=\"rest\" count=\"%zu\" size=\"%zu\"/>\n"
-	   "<total type=\"mmap\" count=\"%d\" size=\"%zu\"/>\n"
-	   "<system type=\"current\" size=\"%zu\"/>\n"
-	   "<system type=\"max\" size=\"%zu\"/>\n"
-	   "<aspace type=\"total\" size=\"%zu\"/>\n"
-	   "<aspace type=\"mprotect\" size=\"%zu\"/>\n"
-	   "</malloc>\n",
-	   total_nblocks, total_avail,
-	   mp_.n_mmaps, mp_.mmapped_mem,
-	   total_system, total_max_system,
-	   total_aspace, total_aspace_mprotect);
+    __libc_lock_unlock(ar_ptr->mutex);
+
+    total_nblocks += nblocks;
+    total_avail   += avail;
+
+    for (size_t i = 1; i < nsizes; ++i)
+      if (sizes[i].count != 0)
+        fprintf(
+          fp, 
+          "<size from=\"%zu\" to=\"%zu\" total=\"%zu\" count=\"%zu\"/>\n",
+		      sizes[i].from, sizes[i].to, sizes[i].total, sizes[i].count
+        );
+
+    if (sizes[0].count != 0)
+    	fprintf(
+        fp, 
+        "<unsorted from=\"%zu\" to=\"%zu\" total=\"%zu\" count=\"%zu\"/>\n",
+		    sizes[0].from, sizes[0].to, sizes[0].total, sizes[0].count
+      );
+
+    total_system += ar_ptr->system_mem;
+    total_max_system += ar_ptr->max_system_mem;
+
+    fprintf(
+      fp,
+      "</sizes>\n"
+      "<total type=\"rest\" count=\"%zu\" size=\"%zu\"/>\n"
+      "<system type=\"current\" size=\"%zu\"/>\n"
+      "<system type=\"max\" size=\"%zu\"/>\n",
+      nblocks, avail, ar_ptr->system_mem, ar_ptr->max_system_mem
+    );
+
+    if (ar_ptr != &main_arena){
+  	  fprintf(
+        fp,
+	  	  "<aspace type=\"total\" size=\"%zu\"/>\n"
+	  	  "<aspace type=\"mprotect\" size=\"%zu\"/>\n"
+	  	  "<aspace type=\"subheaps\" size=\"%zu\"/>\n",
+	  	  heap_size, heap_mprotect_size, heap_count
+      );
+  	  total_aspace += heap_size;
+  	  total_aspace_mprotect += heap_mprotect_size;
+    }
+
+    else{
+      fprintf(
+        fp,
+        "<aspace type=\"total\" size=\"%zu\"/>\n"
+        "<aspace type=\"mprotect\" size=\"%zu\"/>\n",
+        ar_ptr->system_mem, ar_ptr->system_mem
+      );
+      total_aspace += ar_ptr->system_mem;
+      total_aspace_mprotect += ar_ptr->system_mem;
+    }
+
+    fputs ("</heap>\n", fp);
+    ar_ptr = ar_ptr->next;
+  } while (ar_ptr != &main_arena);
+
+  fprintf(
+    fp,
+	  "<total type=\"rest\" count=\"%zu\" size=\"%zu\"/>\n"
+	  "<total type=\"mmap\" count=\"%d\" size=\"%zu\"/>\n"
+	  "<system type=\"current\" size=\"%zu\"/>\n"
+	  "<system type=\"max\" size=\"%zu\"/>\n"
+	  "<aspace type=\"total\" size=\"%zu\"/>\n"
+	  "<aspace type=\"mprotect\" size=\"%zu\"/>\n"
+	  "</malloc>\n",
+	  total_nblocks, total_avail,
+	  mp_.n_mmaps, mp_.mmapped_mem,
+	  total_system, total_max_system,
+	  total_aspace, total_aspace_mprotect
+  );
 
   return 0;
 }
+
 #if IS_IN (libc)
 weak_alias (__malloc_info, malloc_info)
 
