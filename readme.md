@@ -32,6 +32,8 @@ These are the ideas I want to explore in future, either because I am interested 
    - What makes debugging possible (hardware and software constructs)
    - Syscalls (the actual debugging interface).
    - GDB Guide
+   - What is debug info (DWARF spec) ?
+   - Difference b/w debugging with "debug info" and without debug info".
 
 7. Virtualization (Untouched)
     - History and Evolution.
@@ -61,5 +63,7 @@ These are the ideas I want to explore in future, either because I am interested 
     - The history and evolution of GUIs.
     - The importance of maths and physics.
     - How GUI is even possible.
+
+13. Vectorization (SIMD)
 
 **Note: Untouched doesn't mean I don't use those things. I have just now dove into them yet.**
