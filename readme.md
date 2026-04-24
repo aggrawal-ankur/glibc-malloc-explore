@@ -64,6 +64,8 @@ These are the ideas I want to explore in future, either because I am interested 
     - The importance of maths and physics.
     - How GUI is even possible.
 
-13. Vectorization (SIMD)
+13. Vectorization (SIMD). (Untouched)
 
-**Note: Untouched doesn't mean I don't use those things. I have just now dove into them yet.**
+14. How version controlling systems (VCS) like git work. (Untouched)
+
+**Note: Untouched doesn't mean I don't use those things. I have just not dove into them yet.**
