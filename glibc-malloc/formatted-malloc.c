@@ -17,13 +17,13 @@
    License along with the GNU C Library; see the file COPYING.LIB.  If
    not, see <https://www.gnu.org/licenses/>.  */
 
-/*
-  This is a version (aka ptmalloc2) of malloc/free/realloc written by
-  Doug Lea and adapted to multiple threads/arenas by Wolfram Gloger.
+/* This is a version (aka ptmalloc2) of malloc/free/realloc 
+   written by Doug Lea and adapted to multiple threads/arenas 
+   by Wolfram Gloger.
 
-  There have been substantial changes made after the integration into
-  glibc in all parts of the code.  Do not look for much commonality
-  with the ptmalloc2 version.
+  There have been substantial changes made after the integration 
+  into glibc in all parts of the code. Do not look for much 
+  commonality with the ptmalloc2 version.
 
 * Version ptmalloc2-20011215
   based on:
@@ -31,43 +31,47 @@
 
 * Quickstart
 
-  In order to compile this implementation, a Makefile is provided with
-  the ptmalloc2 distribution, which has pre-defined targets for some
-  popular systems (e.g. "make posix" for Posix threads).  All that is
-  typically required with regard to compiler flags is the selection of
-  the thread package via defining one out of USE_PTHREADS, USE_THR or
-  USE_SPROC.  Check the thread-m.h file for what effects this has.
-  Many/most systems will additionally require USE_TSD_DATA_HACK to be
-  defined, so this is the default for "make posix".
+  In order to compile this implementation, a Makefile is provided
+  with the ptmalloc2 distribution, which has pre-defined targets 
+  for some popular systems (e.g. "make posix" for Posix threads).
+  All that is typically required with regard to compiler flags is 
+  the selection of the thread package via defining one out of 
+  USE_PTHREADS, USE_THR or USE_SPROC. Check the thread-m.h file 
+  for what effects this has.
+  Many/most systems will additionally require USE_TSD_DATA_HACK to 
+  be defined, so this is the default for "make posix".
 
 * Why use this malloc?
 
-  This is not the fastest, most space-conserving, most portable, or
-  most tunable malloc ever written. However it is among the fastest
-  while also being among the most space-conserving, portable and tunable.
-  Consistent balance across these factors results in a good general-purpose
-  allocator for malloc-intensive programs.
+  This is not the fastest, most space-conserving, most portable, 
+  or most tunable malloc ever written. However it is among the 
+  fastest while also being among the most space-conserving, 
+  portable and tunable.
+  Consistent balance across these factors results in a good 
+  general-purpose allocator for malloc-intensive programs.
 
   The main properties of the algorithms are:
-  * For large (>= 512 bytes) requests, it is a pure best-fit allocator,
-    with ties normally decided via FIFO (i.e. least recently used).
-  * For small (<= 64 bytes by default) requests, it is a caching
+  - For large (>= 512 bytes) requests, it is a pure best-fit 
+    allocator, with ties normally decided via FIFO 
+    (i.e. least recently used).
+  - For small (<= 64 bytes by default) requests, it is a caching
     allocator, that maintains pools of quickly recycled chunks.
-  * In between, and for combinations of large and small requests, it does
-    the best it can trying to meet both goals at once.
-  * For very large requests (>= 128KB by default), it relies on system
-    memory mapping facilities, if supported.
+  - In between, and for combinations of large and small requests,
+    it does the best it can trying to meet both goals at once.
+  - For very large requests (>= 128KB by default), it relies on 
+    the system's memory mapping facilities, if supported.
 
   For a longer but slightly out of date high-level description, see
      http://gee.cs.oswego.edu/dl/html/malloc.html
 
-  You may already by default be using a C library containing a malloc
-  that is  based on some version of this malloc (for example in
-  linux). You might still want to use the one in this file in order to
-  customize settings or to avoid overheads associated with library
-  versions.
+  You may already by default be using a C library containing 
+  a malloc that is based on some version of this malloc (for
+  example in linux). You might still want to use the one in 
+  this file in order to customize settings or to avoid
+  overheads associated with library versions.
 
-* Contents, described in more detail in "description of public routines" below.
+* Contents, described in more detail in 
+  "description of public routines" below.
 
   Standard (ANSI/SVID/...)  functions:
     malloc(size_t n);
@@ -89,63 +93,68 @@
 
 * Vital statistics:
 
-  Supported pointer representation:       4 or 8 bytes
-  Supported size_t  representation:       4 or 8 bytes
-       Note that size_t is allowed to be 4 bytes even if pointers are 8.
-       You can adjust this by defining INTERNAL_SIZE_T
+  Supported pointer representation:  4 bytes (32-bit); 8 bytes (64-bit)
+  Supported size_t  representation:  4 bytes (32-bit); 8 bytes (64-bit)
+    Note: `size_t` is allowed to be 4 bytes even if 
+          the pointers are 8. You can adjust this by 
+          defining INTERNAL_SIZE_T.
 
-  Alignment:                              2 * sizeof(size_t) (default)
-       (i.e., 8 byte alignment with 4byte size_t). This suffices for
-       nearly all current machines and C compilers. However, you can
-       define MALLOC_ALIGNMENT to be wider than this if necessary.
+  Alignment:  2 * sizeof(size_t)
+    This suffices for nearly all current machines and C 
+    compilers. However, you can define MALLOC_ALIGNMENT 
+    to be wider than this if necessary.
 
-  Minimum overhead per allocated chunk:   4 or 8 bytes
-       Each malloced chunk has a hidden word of overhead holding size
-       and status information.
+  Minimum overhead per allocated chunk:  size_t bytes (4/8 bytes on 32/64-bit)
+    Each malloced chunk has a hidden word of overhead 
+    holding size and status information.
 
-  Minimum allocated size: 4-byte ptrs:  16 bytes    (including 4 overhead)
-			  8-byte ptrs:  24/32 bytes (including, 4/8 overhead)
+  Minimum allocated size:
+    32-bit (i.e 4-byte ptrs):  16 bytes  (including 4 overhead)
+    64-bit (i.e 8-byte ptrs):  32 bytes  (INTERNAL_SIZE_T=8)
+                               24 bytes  (INTERNAL_SIZE_T=4)
+                               (including overhead, 8/4 bytes)
 
-       When a chunk is freed, 12 (for 4byte ptrs) or 20 (for 8 byte
-       ptrs but 4 byte size) or 24 (for 8/8) additional bytes are
-       needed; 4 (8) for a trailing size field and 8 (16) bytes for
-       free list pointers. Thus, the minimum allocatable size is
-       16/24/32 bytes.
+    When a chunk is freed, 12 (for 4byte ptrs) or 20 (for 8 byte
+    ptrs but 4 byte size) or 24 (for 8/8) additional bytes are
+    needed; 4 (8) for a trailing size field and 8 (16) bytes for
+    free list pointers. Thus, the minimum allocatable size is
+    16/24/32 bytes.
 
-       Even a request for zero bytes (i.e., malloc(0)) returns a
-       pointer to something of the minimum allocatable size.
+    Even a request for zero bytes (i.e., malloc(0)) returns a
+    pointer to something of the minimum allocatable size.
 
-       The maximum overhead wastage (i.e., number of extra bytes
-       allocated than were requested in malloc) is less than or equal
-       to the minimum size, except for requests >= mmap_threshold that
-       are serviced via mmap(), where the worst case wastage is 2 *
-       sizeof(size_t) bytes plus the remainder from a system page (the
-       minimal mmap unit); typically 4096 or 8192 bytes.
+    The maximum overhead wastage (i.e., number of extra bytes
+    allocated than were requested in malloc) is less than or equal
+    to the minimum size, except for requests >= mmap_threshold that
+    are serviced via mmap(), where the worst case wastage is 2 *
+    sizeof(size_t) bytes plus the remainder from a system page (the
+    minimal mmap unit); typically 4096 or 8192 bytes.
 
   Maximum allocated size:  4-byte size_t: 2^32 minus about two pages
-			   8-byte size_t: 2^64 minus about two pages
+		                  	   8-byte size_t: 2^64 minus about two pages
 
-       It is assumed that (possibly signed) size_t values suffice to
-       represent chunk sizes. `Possibly signed' is due to the fact
-       that `size_t' may be defined on a system as either a signed or
-       an unsigned type. The ISO C standard says that it must be
-       unsigned, but a few systems are known not to adhere to this.
-       Additionally, even when size_t is unsigned, sbrk (which is by
-       default used to obtain memory from system) accepts signed
-       arguments, and may not be able to handle size_t-wide arguments
-       with negative sign bit.  Generally, values that would
-       appear as negative after accounting for overhead and alignment
-       are supported only via mmap(), which does not have this
-       limitation.
+    It is assumed that (possibly signed) size_t values suffice to
+    represent chunk sizes. `Possibly signed' is due to the fact
+    that `size_t' may be defined on a system as either a signed or
+    an unsigned type. The ISO C standard says that it must be
+    unsigned, but a few systems are known not to adhere to this.
+    Additionally, even when size_t is unsigned, sbrk (which is by
+    default used to obtain memory from system) accepts signed
+    arguments, and may not be able to handle size_t-wide arguments
+    with negative sign bit.  Generally, values that would
+    appear as negative after accounting for overhead and alignment
+    are supported only via mmap(), which does not have this
+    limitation.
 
-       Requests for sizes outside the allowed range will perform an optional
-       failure action and then return null. (Requests may also
-       also fail because a system is out of memory.)
+    Requests for sizes outside the allowed range will perform an optional
+    failure action and then return null. (Requests may also
+    also fail because a system is out of memory.)
 
   Thread-safety: thread-safe
 
-  Compliance: I believe it is compliant with the 1997 Single Unix Specification
-       Also SVID/XPG, ANSI C, and probably others as well.
+  Compliance: I believe it is compliant with the 1997 
+    Single Unix Specification; Also SVID/XPG, ANSI C, 
+    and probably others as well.
 
 * Synopsis of compile-time options:
 
@@ -201,7 +210,7 @@
 /* void* is the pointer type that malloc should say it returns */
 
 #ifndef void
-#define void      void
+#define void  void
 #endif /*void*/
 
 #include <stddef.h>   /* for size_t */
@@ -224,35 +233,35 @@
 
 #include <shlib-compat.h>
 
-/* For uintptr_t.  */
+/* For uintptr_t. */
 #include <stdint.h>
 
-/* For stdc_count_ones.  */
+/* For stdc_count_ones. */
 #include <stdbit.h>
 
-/* For va_arg, va_start, va_end.  */
+/* For va_arg, va_start, va_end. */
 #include <stdarg.h>
 
-/* For MIN, MAX, powerof2.  */
+/* For MIN, MAX, powerof2. */
 #include <sys/param.h>
 
-/* For ALIGN_UP et. al.  */
+/* For ALIGN_UP et. al. */
 #include <libc-pointer-arith.h>
 
-/* For DIAG_PUSH/POP_NEEDS_COMMENT et al.  */
+/* For DIAG_PUSH/POP_NEEDS_COMMENT et al. */
 #include <libc-diag.h>
 
-/* For memory tagging.  */
+/* For memory tagging. */
 #include <libc-mtag.h>
 
 #include <malloc/malloc-internal.h>
 
-/* For SINGLE_THREAD_P.  */
+/* For SINGLE_THREAD_P. */
 #include <sysdep-cancel.h>
 
 #include <libc-internal.h>
 
-/* For tcache double-free check.  */
+/* For tcache double-free check. */
 #include <random-bits.h>
 #include <sys/random.h>
 #include <not-cancel.h>
@@ -289,134 +298,146 @@
 #endif
 
 #if USE_TCACHE
-/* We want 64 entries.  This is an arbitrary limit, which tunables can reduce.  */
-# define TCACHE_SMALL_BINS		64
-# define TCACHE_LARGE_BINS		12 /* Up to 4M chunks */
-# define TCACHE_MAX_BINS	(TCACHE_SMALL_BINS + TCACHE_LARGE_BINS)
-# define MAX_TCACHE_SMALL_SIZE	tidx2csize (TCACHE_SMALL_BINS-1)
+/* We want 64 entries. This is an arbitrary limit, 
+which tunables can reduce. */
+#define  TCACHE_SMALL_BINS  64
+#define  TCACHE_LARGE_BINS  12 /* Up to 4M chunks */
+#define  TCACHE_MAX_BINS	  (TCACHE_SMALL_BINS + TCACHE_LARGE_BINS)
+#define  MAX_TCACHE_SMALL_SIZE  tidx2csize(TCACHE_SMALL_BINS-1)
 
-# define tidx2csize(idx)	(((size_t) idx) * MALLOC_ALIGNMENT + MINSIZE)
-# define tidx2usize(idx)	(((size_t) idx) * MALLOC_ALIGNMENT + MINSIZE - SIZE_SZ)
+#define  tidx2csize(idx)	(((size_t)idx) * MALLOC_ALIGNMENT + MINSIZE)
+#define  tidx2usize(idx)	(((size_t)idx) * MALLOC_ALIGNMENT + MINSIZE - SIZE_SZ)
 
-/* When "x" is from chunksize().  */
-# define csize2tidx(x) (((x) - MINSIZE) / MALLOC_ALIGNMENT)
-/* When "x" is a user-provided size.  */
-# define usize2tidx(x) csize2tidx (checked_request2size (x))
+/* When "x" is from chunksize(). */
+#define  csize2tidx(x)  ((x - MINSIZE) / MALLOC_ALIGNMENT)
+
+/* When "x" is a user-provided size. */
+#define  usize2tidx(x)  csize2tidx(checked_request2size(x))
 
 /* With rounding and alignment, the bins are...
-   idx 0   bytes 0..24 (64-bit) or 0..12 (32-bit)
-   idx 1   bytes 25..40 or 13..20
-   idx 2   bytes 41..56 or 21..28
-   etc.  */
+   idx 0 -> bytes 0..24 (64-bit) or 0..12 (32-bit)
+   idx 1 -> bytes 25..40 or 13..20
+   idx 2 -> bytes 41..56 or 21..28
+   etc. */
 
-/* This is another arbitrary limit, which tunables can change.  Each
-   tcache bin will hold at most this number of chunks.  */
-# define TCACHE_FILL_COUNT 16
+/* This is another arbitrary limit, which tunables can change.
+   Each tcache bin will hold at most this number of chunks. */
+#define  TCACHE_FILL_COUNT 16
 
-/* Maximum chunks in tcache bins for tunables.  This value must fit the range
-   of tcache->num_slots[] entries, else they may overflow.  */
-# define MAX_TCACHE_COUNT UINT16_MAX
+/* Maximum chunks in tcache bins for tunables. This value 
+   must fit the range of tcache->num_slots[] entries, 
+   else they may overflow. */
+#define  MAX_TCACHE_COUNT  UINT16_MAX
 #endif
 
-/* Safe-Linking:
-   Use randomness from ASLR (mmap_base) to protect single-linked lists
-   of TCache.  That is, mask the "next" pointers of the
-   lists' chunks, and also perform allocation alignment checks on them.
-   This mechanism reduces the risk of pointer hijacking, as was done with
-   Safe-Unlinking in the double-linked lists of Small-Bins.
-   It assumes a minimum page size of 4096 bytes (12 bits).  Systems with
-   larger pages provide less entropy, although the pointer mangling
-   still works.  */
-#define PROTECT_PTR(pos, ptr) \
-  ((__typeof (ptr)) ((((size_t) pos) >> 12) ^ ((size_t) ptr)))
+/* Safe-Linking: Use randomness from ASLR (mmap_base) to 
+   protect single-linked lists of TCache. That is, mask 
+   the "next" pointers of the lists' chunks, and also 
+   perform allocation alignment checks on them.
+
+   This mechanism reduces the risk of pointer hijacking, 
+   as was done with Safe-Unlinking in the double-linked 
+   lists of Small-Bins.
+
+   It assumes a minimum page size of 4096 bytes (12 bits).
+   Systems with larger pages provide less entropy, although 
+   the pointer mangling still works. */
+
+#define PROTECT_PTR(pos, ptr)    (( __typeof(ptr)) ( (((size_t)pos) >> 12) ^ ((size_t)ptr) ))
 #define REVEAL_PTR(ptr)  PROTECT_PTR (&ptr, ptr)
 
-/*
-  The REALLOC_ZERO_BYTES_FREES macro controls the behavior of realloc (p, 0)
-  when p is nonnull.  If the macro is nonzero, the realloc call returns NULL;
-  otherwise, the call returns what malloc (0) would.  In either case,
-  p is freed.  Glibc uses a nonzero REALLOC_ZERO_BYTES_FREES, which
-  implements common historical practice.
+/* The REALLOC_ZERO_BYTES_FREES macro controls the behavior
+   of realloc(p, 0) when p is nonnull.
+   - If the macro is nonzero, the realloc call returns NULL;
+   - Otherwise, the call returns what malloc(0) would.
+   In either case, p is freed.
 
-  ISO C17 says the realloc call has implementation-defined behavior,
-  and it might not even free p.
+   Glibc uses a nonzero REALLOC_ZERO_BYTES_FREES, which
+   implements common historical practice.
+
+  ISO C17 says the realloc call has implementation-defined 
+  behavior, and it might not even free p.
 */
-
-#ifndef REALLOC_ZERO_BYTES_FREES
-#define REALLOC_ZERO_BYTES_FREES 1
+#ifndef  REALLOC_ZERO_BYTES_FREES
+#define  REALLOC_ZERO_BYTES_FREES  1
 #endif
 
-/* Definition for getting more memory from the OS.  */
+/* Definition for getting more memory from the OS. */
 #include "morecore.c"
 
-#define MORECORE         (*__glibc_morecore)
-#define MORECORE_FAILURE  NULL
+#define  MORECORE          (*__glibc_morecore)
+#define  MORECORE_FAILURE  NULL
 
-/* Memory tagging.  */
+/* Memory tagging.
 
-/* Some systems support the concept of tagging (sometimes known as
-   coloring) memory locations on a fine grained basis.  Each memory
-   location is given a color (normally allocated randomly) and
-   pointers are also colored.  When the pointer is dereferenced, the
-   pointer's color is checked against the memory's color and if they
-   differ the access is faulted (sometimes lazily).
+  Some systems support the concept of tagging (also known as
+  coloring) memory locations on a fine grained basis.
+  - Each memory location is given a color (normally allocated
+    randomly) and pointers are also colored.
+  - When the pointer is dereferenced, the pointer's color is 
+    checked against the memory's color and if they differ the
+    access is faulted (sometimes lazily).
 
-   We use this in glibc by maintaining a single color for the malloc
-   data structures that are interleaved with the user data and then
-   assigning separate colors for each block allocation handed out.  In
-   this way simple buffer overruns will be rapidly detected.  When
-   memory is freed, the memory is recolored back to the glibc default
-   so that simple use-after-free errors can also be detected.
+  We use this in glibc by maintaining a single color for the 
+  malloc data structures that are interleaved with the user 
+  data and then assigning separate colors for each block 
+  allocation handed out.
+  - This way, simple buffer overruns will be rapidly detected.
+  - When memory is freed, the memory is recolored back to the 
+    glibc default so that simple use-after-free errors can 
+    also be detected.
 
-   If memory is reallocated the buffer is recolored even if the
-   address remains the same.  This has a performance impact, but
-   guarantees that the old pointer cannot mistakenly be reused (code
-   that compares old against new will see a mismatch and will then
-   need to behave as though realloc moved the data to a new location).
+  If memory is reallocated the buffer is recolored even if the
+  address remains the same. This has a performance impact, but 
+  guarantees that the old pointer cannot mistakenly be reused 
+  (code that compares old against new will see a mismatch and 
+  will then need to behave as though realloc moved the data to 
+  a new location).
 
-   Internal API for memory tagging support.
+  Internal API for memory tagging support.
+    The aim is to keep the code for memory tagging support as 
+    close to the normal APIs in glibc as possible, so that if 
+    tagging is not enabled in the library, or is disabled at 
+    runtime then standard operations can continue to be used.
+    Support macros are used to do this.
 
-   The aim is to keep the code for memory tagging support as close to
-   the normal APIs in glibc as possible, so that if tagging is not
-   enabled in the library, or is disabled at runtime then standard
-   operations can continue to be used.  Support macros are used to do
-   this:
+    void *tag_new_zero_region(void *ptr, size_t size)
+    - Allocates a new tag, 
+    - colors the memory with that tag, 
+    - zeros the memory, and 
+    - returns a pointer that is correctly colored for that
+      location.
+    The non-tagging version will simply call memset with 0.
 
-   void *tag_new_zero_region (void *ptr, size_t size)
+    void *tag_region (void *ptr, size_t size)
+    - Color the region of memory pointed to by PTR and
+      size SIZE with the color of PTR.
+    - Returns the original pointer.
 
-   Allocates a new tag, colors the memory with that tag, zeros the
-   memory and returns a pointer that is correctly colored for that
-   location.  The non-tagging version will simply call memset with 0.
+    void *tag_new_usable (void *ptr)
+    - Allocate a new random color and use it to color the 
+      user region of a chunk; this may include data from 
+      the subsequent chunk's header if tagging is 
+      sufficiently fine grained.
+    - Returns PTR suitably recolored for accessing the
+      memory there.
 
-   void *tag_region (void *ptr, size_t size)
-
-   Color the region of memory pointed to by PTR and size SIZE with
-   the color of PTR.  Returns the original pointer.
-
-   void *tag_new_usable (void *ptr)
-
-   Allocate a new random color and use it to color the user region of
-   a chunk; this may include data from the subsequent chunk's header
-   if tagging is sufficiently fine grained.  Returns PTR suitably
-   recolored for accessing the memory there.
-
-   void *tag_at (void *ptr)
-
-   Read the current color of the memory at the address pointed to by
-   PTR (ignoring it's current color) and return PTR recolored to that
-   color.  PTR must be valid address in all other respects.  When
-   tagging is not enabled, it simply returns the original pointer.
+    void *tag_at (void *ptr)
+    - Read the current color of the memory at the address 
+      pointed to by PTR (ignoring it's current color) and 
+      return PTR recolored to that color. PTR must be valid 
+      address in all other respects.
+    - When tagging is not enabled, it simply returns the original pointer.
 */
-
 #ifdef USE_MTAG
 static bool mtag_enabled = false;
 static int mtag_mmap_flags = 0;
 #else
-# define mtag_enabled false
-# define mtag_mmap_flags 0
+#define  mtag_enabled false
+#define  mtag_mmap_flags     0
 #endif
 
-static __always_inline void *
+static __always_inline void*
 tag_region (void *ptr, size_t size)
 {
   if (__glibc_unlikely (mtag_enabled))
@@ -424,7 +445,7 @@ tag_region (void *ptr, size_t size)
   return ptr;
 }
 
-static __always_inline void *
+static __always_inline void*
 tag_new_zero_region (void *ptr, size_t size)
 {
   if (__glibc_unlikely (mtag_enabled))
@@ -432,11 +453,10 @@ tag_new_zero_region (void *ptr, size_t size)
   return memset (ptr, 0, size);
 }
 
-/* Defined later.  */
-static void *
-tag_new_usable (void *ptr);
+/* Defined later. */
+static void* tag_new_usable (void *ptr);
 
-static __always_inline void *
+static __always_inline void*
 tag_at (void *ptr)
 {
   if (__glibc_unlikely (mtag_enabled))
@@ -448,103 +468,103 @@ tag_at (void *ptr)
 
 /* MORECORE-related declarations. By default, rely on sbrk. */
 
-
-/*
-  MORECORE is the name of the routine to call to obtain more memory
-  from the system.  See below for general guidance on writing
-  alternative MORECORE functions, as well as a version for WIN32 and a
-  sample version for pre-OSX macos.
+/* MORECORE is the name of the routine to call to obtain 
+   more memory from the system. See below for general 
+   guidance on writing alternative MORECORE functions, as 
+   well as a version for WIN32 and a sample version for 
+   pre-OSX macos.
 */
-
 #ifndef MORECORE
 #define MORECORE sbrk
 #endif
 
-/*
-  MORECORE_FAILURE is the value returned upon failure of MORECORE
-  as well as mmap. Since it cannot be an otherwise valid memory address,
-  and must reflect values of standard sys calls, you probably ought not
-  try to redefine it.
+/* MORECORE_FAILURE is the value returned upon failure 
+   of MORECORE as well as mmap. Since it cannot be an 
+   otherwise valid memory address, and must reflect 
+   values of standard syscalls, you probably ought not
+   try to redefine it.
 */
-
 #ifndef MORECORE_FAILURE
 #define MORECORE_FAILURE (-1)
 #endif
 
-/*
-  If MORECORE_CONTIGUOUS is true, take advantage of fact that
-  consecutive calls to MORECORE with positive arguments always return
-  contiguous increasing addresses.  This is true of unix sbrk.  Even
-  if not defined, when regions happen to be contiguous, malloc will
-  permit allocations spanning regions obtained from different
-  calls. But defining this when applicable enables some stronger
-  consistency checks and space efficiencies.
+/* If MORECORE_CONTIGUOUS is true, take advantage of the 
+   fact that consecutive calls to MORECORE with positive 
+   arguments always return contiguous increasing addresses.
+   - This is true of unix sbrk. Even if not defined, when 
+   regions happen to be contiguous, malloc will permit 
+   allocations spanning regions obtained from different calls.
+   - But defining this when applicable enables some stronger
+   consistency checks and space efficiencies.
 */
-
 #ifndef MORECORE_CONTIGUOUS
-#define MORECORE_CONTIGUOUS 1
+#define MORECORE_CONTIGUOUS  1
 #endif
 
-/*
-  Define MORECORE_CANNOT_TRIM if your version of MORECORE
-  cannot release space back to the system when given negative
-  arguments. This is generally necessary only if you are using
-  a hand-crafted MORECORE function that cannot handle negative arguments.
+/* Define MORECORE_CANNOT_TRIM if your version of MORECORE
+   cannot release space back to the system when given 
+   negative arguments. This is generally necessary only 
+   if you are using a hand-crafted MORECORE function that 
+   cannot handle negative arguments.
 */
-
 /* #define MORECORE_CANNOT_TRIM */
 
-/*  MORECORE_CLEARS           (default 1)
-     The degree to which the routine mapped to MORECORE zeroes out
-     memory: never (0), only for newly allocated space (1) or always
-     (2).  The distinction between (1) and (2) is necessary because on
-     some systems, if the application first decrements and then
-     increments the break value, the contents of the reallocated space
-     are unspecified.
- */
+/* MORECORE_CLEARS           (default 1)
+   It defines the degree to which the routine mapped to 
+   MORECORE zeroes out memory:
+   - never (0), 
+   - only for newly allocated space (1), or
+   - always (2).
 
+   The distinction between (1) and (2) is necessary 
+   because on some systems, if the application first 
+   decrements and then increments the break value, 
+   the contents of the reallocated space are unspecified.
+*/
 #ifndef MORECORE_CLEARS
-# define MORECORE_CLEARS 1
+#define MORECORE_CLEARS 1
 #endif
 
-
-/*
-   MMAP_AS_MORECORE_SIZE is the minimum mmap size argument to use if
-   sbrk fails, and mmap is used as a backup.  The value must be a
-   multiple of page size.  This backup strategy generally applies only
-   when systems have "holes" in address space, so sbrk cannot perform
-   contiguous expansion, but there is still space available on system.
-   On systems for which this is known to be useful (i.e. most linux
-   kernels), this occurs only when programs allocate huge amounts of
-   memory.  Between this, and the fact that mmap regions tend to be
-   limited, the size should be large, to avoid too many mmap calls and
-   thus avoid running out of kernel resources.  */
-
+/* MMAP_AS_MORECORE_SIZE is the minimum mmap size argument
+   to use if sbrk fails, and mmap is used as a backup. The 
+   value must be a multiple of page size.
+   - This backup strategy generally applies only when systems 
+   have "holes" in address space, so sbrk cannot perform
+   contiguous expansion, but there is still space available on 
+   the system.
+   - On systems for which this is known to be useful (i.e. most
+   linux kernels), this occurs only when programs allocate huge
+   amounts of memory.
+   - Between this, and the fact that mmap regions tend to be 
+   limited, the size should be large, to avoid too many mmap 
+   calls and thus avoid running out of kernel resources. */
 #ifndef MMAP_AS_MORECORE_SIZE
 #define MMAP_AS_MORECORE_SIZE (1024 * 1024)
 #endif
 
 /* Define HAVE_MREMAP to make realloc() use mremap()
    to re-allocate large blocks. */
-
 #ifndef HAVE_MREMAP
 #define HAVE_MREMAP 0
 #endif
 
-/*
-  This version of malloc supports the standard SVID/XPG mallinfo
-  routine that returns a struct containing usage properties and
-  statistics. It should work on any SVID/XPG compliant system that has
-  a /usr/include/malloc.h defining struct mallinfo. (If you'd like to
-  install such a thing yourself, cut out the preliminary declarations
-  as described above and below and save them in a malloc.h file. But
-  there's no compelling reason to bother to do this.)
 
-  The main declaration needed is the mallinfo struct that is returned
-  (by-copy) by mallinfo().  The SVID/XPG malloinfo struct contains a
-  bunch of fields that are not even meaningful in this version of
-  malloc.  These fields are are instead filled by mallinfo() with
-  other numbers that might be of interest.
+/* This version of malloc supports the standard SVID/XPG 
+   mallinfo routine that returns a struct containing usage 
+   properties and statistics.
+   - It should work on any SVID/XPG compliant system that
+   has a /usr/include/malloc.h defining struct mallinfo.
+   - If you'd like to install such a thing yourself, cut 
+     out the preliminary declarations as described above 
+     and below and save them in a malloc.h file. But there's 
+     no compelling reason to be bothered to do this.
+
+   The main declaration needed is the mallinfo struct that 
+   is returned (by-copy) by mallinfo().
+   - The SVID/XPG malloinfo struct contains a bunch of fields
+     that are not even meaningful in this version of malloc.
+   - These fields are are instead filled by mallinfo() with
+     other numbers that might be of interest.
 */
 
 
@@ -751,33 +771,37 @@ void     __malloc_stats(void);
 int      __posix_memalign(void **, size_t, size_t);
 #endif /* IS_IN (libc) */
 
-/*
-  mallopt(int parameter_number, int parameter_value)
-  Sets tunable parameters The format is to provide a
-  (parameter-number, parameter-value) pair.  mallopt then sets the
-  corresponding parameter to the argument value if it can (i.e., so
-  long as the value is meaningful), and returns 1 if successful else
-  0.  SVID/XPG/ANSI defines four standard param numbers for mallopt,
-  normally defined in malloc.h. These params (M_MXFAST, M_NLBLKS, M_GRAIN,
-  M_KEEP) don't apply to our malloc, so setting them has no effect. But this
-  malloc also supports four other options in mallopt. See below for details.
-  Briefly, supported parameters are as follows (listed defaults are for
-  "typical" configurations).
+/* mallopt(int parameter_number, int parameter_value)
 
-  Symbol            param #   default    allowed param values
-  M_MXFAST          1         64         0-80  (deprecated)
-  M_TRIM_THRESHOLD -1         128*1024   any   (-1U disables trimming)
-  M_TOP_PAD        -2         0          any
-  M_MMAP_THRESHOLD -3         128*1024   any   (or 0 if no MMAP support)
-  M_MMAP_MAX       -4         65536      any   (0 disables use of mmap)
+   - Sets tunable parameters. The format is to provide a
+   (parameter-number, parameter-value) pair.
+   - mallopt then sets the corresponding parameter to the
+     argument value if it can (i.e., so long as the value 
+     is meaningful), and returns 1 if successful else 0.
+
+   - SVID/XPG/ANSI defines four standard param numbers for
+     mallopt, normally defined in malloc.h.
+   - These params (M_MXFAST, M_NLBLKS, M_GRAIN, M_KEEP) 
+     don't apply to our malloc, so setting them has no effect.
+   - But this malloc also supports four other options in 
+     mallopt. See below for details. Briefly, supported 
+     parameters are as follows (listed defaults are for
+     "typical" configurations).
+
+   | Symbol           | Param# | Default    | Allowed param values            |
+   | ---------------- | ------ | ---------- | ------------------------------- |
+   | M_MXFAST         |    1   | 64         | 0-80  (deprecated)              |
+   | M_TRIM_THRESHOLD |   -1   | 128 * 1024 | any   (-1U disables trimming)   |
+   | M_TOP_PAD        |   -2   | 0          | any                             |
+   | M_MMAP_THRESHOLD |   -3   | 128 * 1024 | any   (or 0 if no MMAP support) |
+   | M_MMAP_MAX       |   -4   | 65536      | any   (0 disables use of mmap)  |
 */
 int      __libc_mallopt(int, int);
 #if IS_IN (libc)
 libc_hidden_proto (__libc_mallopt)
 #endif
 
-/* mallopt tuning options */
-
+/* mallopt tuning options. */
 
 /*
   M_TRIM_THRESHOLD is the maximum amount of unused top-most memory
@@ -871,8 +895,8 @@ libc_hidden_proto (__libc_mallopt)
 #define DEFAULT_TOP_PAD        (0)
 #endif
 
-/* MMAP_THRESHOLD_MAX and _MIN are the bounds on the dynamically
-   adjusted MMAP_THRESHOLD. */
+/* MMAP_THRESHOLD_MAX and _MIN are the bounds
+   on the dynamically adjusted MMAP_THRESHOLD. */
 #ifndef DEFAULT_MMAP_THRESHOLD_MIN
 #define DEFAULT_MMAP_THRESHOLD_MIN (128 * 1024)
 #endif
@@ -1079,359 +1103,365 @@ struct malloc_chunk {
   struct malloc_chunk* fd;                /* double links -- used only if free. */
   struct malloc_chunk* bk;
 
-  /* Only used for large blocks: pointer to next larger size.  */
+  /* Only used for large blocks: pointer to next larger size. */
   struct malloc_chunk* fd_nextsize;       /* double links -- used only if free. */
   struct malloc_chunk* bk_nextsize;
 };
 
-
 /* malloc_chunk details:
 
-    (The following includes lightly edited explanations by Colin Plumb.)
+  (The following includes lightly edited explanations by Colin Plumb.)
 
-    Chunks of memory are maintained using a `boundary tag' method as
-    described in e.g., Knuth or Standish.  (See the paper by Paul
-    Wilson ftp://ftp.cs.utexas.edu/pub/garbage/allocsrv.ps for a
-    survey of such techniques.)  Sizes of free chunks are stored both
-    in the front of each chunk and at the end.  This makes
-    consolidating fragmented chunks into bigger chunks very fast.  The
-    size fields also hold bits representing whether chunks are free or
-    in use.
+  Chunks of memory are maintained using a `boundary tag' method as
+  described in e.g., Knuth or Standish. (See the paper by Paul Wilson 
+    ftp://ftp.cs.utexas.edu/pub/garbage/allocsrv.ps
+    for a survey of such techniques.)
+  - Sizes of free chunks are stored both in the front of each chunk 
+    and at the end. This makes consolidating fragmented chunks into 
+    bigger chunks very fast.
+  - The size fields also hold bits representing whether chunks are
+    free or in use.
 
-    An allocated chunk looks like this:
+  An allocated chunk looks like this:
 
-
-    chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Size of previous chunk, if unallocated (P clear)  |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Size of chunk, in bytes                     |A|M|P|
-      mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             User data starts here...                          .
-	    .                                                               .
-	    .             (malloc_usable_size() bytes)                      .
-	    .                                                               |
-nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             (size of chunk, but used for application data)    |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Size of next chunk, in bytes                |A|0|1|
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Size of previous chunk, if unallocated (P clear)  |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Size of chunk, in bytes                     |A|M|P|
+          mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             User data starts here...                          |
+                .                                                               .
+                .             (malloc_usable_size() bytes)                      .
+                |                                                               |
+    nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             (size of chunk, but used for application data)    |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Size of next chunk, in bytes                |A|0|1|
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
     Where "chunk" is the front of the chunk for the purpose of most of
     the malloc code, but "mem" is the pointer that is returned to the
-    user.  "Nextchunk" is the beginning of the next contiguous chunk.
+    user. "Nextchunk" is the beginning of the next contiguous chunk.
 
-    Chunks always begin on even word boundaries, so the mem portion
-    (which is returned to the user) is also on an even word boundary, and
-    thus at least double-word aligned.
+  Chunks always begin on even word boundaries, so the mem portion
+  (which is returned to the user) is also on an even word boundary,
+  and thus at least double-word aligned.
 
-    Free chunks are stored in circular doubly-linked lists, and look like this:
+  Free chunks are stored in circular doubly-linked lists, and look like this:
 
-    chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Size of previous chunk, if unallocated (P clear)  |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    `head:' |             Size of chunk, in bytes                     |A|0|P|
-      mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Forward pointer to next chunk in list             |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Back pointer to previous chunk in list            |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Unused space (may be 0 bytes long)                .
-	    .                                                               .
-	    .                                                               |
-nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    `foot:' |             Size of chunk, in bytes                           |
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-	    |             Size of next chunk, in bytes                |A|0|0|
-	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Size of previous chunk, if unallocated (P clear)  |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        `head:' |             Size of chunk, in bytes                     |A|0|P|
+          mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Forward pointer to next chunk in list             |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Back pointer to previous chunk in list            |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Unused space (may be 0 bytes long)                |
+                .                                                               .
+                |                                                               |
+    nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        `foot:' |             Size of chunk, in bytes                           |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |             Size of next chunk, in bytes                |A|0|0|
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
     The P (PREV_INUSE) bit, stored in the unused low-order bit of the
     chunk size (which is always a multiple of two words), is an in-use
-    bit for the *previous* chunk.  If that bit is *clear*, then the
-    word before the current chunk size contains the previous chunk
-    size, and can be used to find the front of the previous chunk.
-    The very first chunk allocated always has this bit set,
-    preventing access to non-existent (or non-owned) memory. If
-    prev_inuse is set for any given chunk, then you CANNOT determine
-    the size of the previous chunk, and might even get a memory
-    addressing fault when trying to do so.
+    bit for the *previous* chunk.
+    - If that bit is *clear*, then the word before the current chunk 
+      size contains the previous chunk size, and can be used to find
+      the front of the previous chunk.
+    - The very first chunk allocated always has this bit set, preventing
+      access to non-existent (or non-owned) memory.
+    - If prev_inuse is set for any given chunk, then you CANNOT determine
+      the size of the previous chunk, and might even get a memory
+      addressing fault when trying to do so.
 
     The A (NON_MAIN_ARENA) bit is cleared for chunks on the initial,
-    main arena, described by the main_arena variable.  When additional
+    main arena, described by the main_arena variable. When additional
     threads are spawned, each thread receives its own arena (up to a
     configurable limit, after which arenas are reused for multiple
-    threads), and the chunks in these arenas have the A bit set.  To
+    threads), and the chunks in these arenas have the A bit set. To
     find the arena for a chunk on such a non-main arena, heap_for_ptr
     performs a bit mask operation and indirection through the ar_ptr
     member of the per-heap header heap_info (see arena.c).
 
     Note that the `foot' of the current chunk is actually represented
-    as the prev_size of the NEXT chunk. This makes it easier to
-    deal with alignments etc but can be very confusing when trying
-    to extend or adapt this code.
+    as the prev_size of the NEXT chunk. This makes it easier to deal 
+    with alignments etc but can be very confusing when trying to 
+    extend or adapt this code.
 
     The two exceptions to all this are:
 
-     1. The special chunk `top' doesn't bother using the
-	trailing size field since there is no next contiguous chunk
-	that would have to index off it. After initialization, `top'
-	is forced to always exist.  If it would become less than
-	MINSIZE bytes long, it is replenished.
+    1. The special chunk `top' doesn't bother using the trailing size 
+       field since there is no next contiguous chunk that would have 
+       to index off it. After initialization, `top' is forced to 
+       always exist. If it would become less than MINSIZE bytes 
+       long, it is replenished.
 
-     2. Chunks allocated via mmap, which have the second-lowest-order
-	bit M (IS_MMAPPED) set in their size fields.  Because they are
-	allocated one-by-one, each must contain its own trailing size
-	field.  If the M bit is set, the other bits are ignored
-	(because mmapped chunks are neither in an arena, nor adjacent
-	to a freed chunk).  The M bit is also used for chunks which
-	originally came from a dumped heap via malloc_set_state in
-	hooks.c.
+    2. Chunks allocated via mmap, which have the second-lowest-order
+       bit M (IS_MMAPPED) set in their size fields. Because they are
+       allocated one-by-one, each must contain its own trailing size
+       field. If the M bit is set, the other bits are ignored
+       (because mmapped chunks are neither in an arena, nor adjacent
+       to a freed chunk). The M bit is also used for chunks which
+       originally came from a dumped heap via malloc_set_state in
+       hooks.c.
 */
 
 /* ---------- Size and alignment checks and conversions ---------- */
 
-/* Conversion from malloc headers to user pointers, and back.  When
-   using memory tagging the user data and the malloc data structure
-   headers have distinct tags.  Converting fully from one to the other
-   involves extracting the tag at the other address and creating a
-   suitable pointer using it.  That can be quite expensive.  There are
-   cases when the pointers are not dereferenced (for example only used
-   for alignment check) so the tags are not relevant, and there are
-   cases when user data is not tagged distinctly from malloc headers
-   (user data is untagged because tagging is done late in malloc and
-   early in free).  User memory tagging across internal interfaces:
+/* Conversion from malloc headers to user pointers, and back.
 
-      sysmalloc: Returns untagged memory.
-      _int_malloc: Returns untagged memory.
-      _int_memalign: Returns untagged memory.
-      _int_memalign: Returns untagged memory.
-      _mid_memalign: Returns tagged memory.
-      _int_realloc: Takes and returns tagged memory.
+  When using memory tagging the user data and the malloc data structure
+  headers have distinct tags. Converting fully from one to the other
+  involves extracting the tag at the other address and creating a
+  suitable pointer using it. That can be quite expensive. There are
+  cases when the pointers are not dereferenced (for example only used
+  for alignment check) so the tags are not relevant, and there are
+  cases when user data is not tagged distinctly from malloc headers
+  (user data is untagged because tagging is done late in malloc and
+  early in free). User memory tagging across internal interfaces:
+
+    sysmalloc:     Returns untagged memory.
+    _int_malloc:   Returns untagged memory.
+    _int_memalign: Returns untagged memory.
+    _int_memalign: Returns untagged memory.
+    _mid_memalign: Returns tagged memory.
+    _int_realloc:  Takes and returns tagged memory.
 */
 
-/* The chunk header is two SIZE_SZ elements, but this is used widely, so
-   we define it here for clarity later.  */
-#define CHUNK_HDR_SZ (2 * SIZE_SZ)
+/* The chunk header is two SIZE_SZ elements, but this is
+   used widely, so we define it here for clarity later. */
+#define  CHUNK_HDR_SZ  (2 * SIZE_SZ)
 
-/* Convert a chunk address to a user mem pointer without correcting
-   the tag.  */
-#define chunk2mem(p) ((void*)((char*)(p) + CHUNK_HDR_SZ))
+/* Convert a chunk address to a user mem pointer
+   without correcting the tag. */
+#define chunk2mem(p)  ((void*) ((char*)(p) + CHUNK_HDR_SZ))
 
-/* Convert a chunk address to a user mem pointer and extract the right tag.  */
-#define chunk2mem_tag(p) ((void*)tag_at ((char*)(p) + CHUNK_HDR_SZ))
+/* Convert a chunk address to a user mem pointer and extract the right tag. */
+#define chunk2mem_tag(p)  ((void*)tag_at ((char*)(p) + CHUNK_HDR_SZ))
 
-/* Convert a user mem pointer to a chunk address and extract the right tag.  */
-#define mem2chunk(mem) ((mchunkptr)tag_at (((char*)(mem) - CHUNK_HDR_SZ)))
+/* Convert a user mem pointer to a chunk address and extract the right tag. */
+#define mem2chunk(mem)  ((mchunkptr)tag_at (((char*)(mem) - CHUNK_HDR_SZ)))
 
 /* The smallest possible chunk */
-#define MIN_CHUNK_SIZE        (offsetof(struct malloc_chunk, fd_nextsize))
+#define MIN_CHUNK_SIZE  (offsetof(struct malloc_chunk, fd_nextsize))
 
-/* The smallest size we can malloc is an aligned minimal chunk */
+/* The smallest size we can malloc is an aligned minimal chunk. */
+#define MINSIZE  (unsigned long) (((MIN_CHUNK_SIZE+MALLOC_ALIGN_MASK) & ~MALLOC_ALIGN_MASK))
 
-#define MINSIZE  \
-  (unsigned long)(((MIN_CHUNK_SIZE+MALLOC_ALIGN_MASK) & ~MALLOC_ALIGN_MASK))
-
-/* Check if m has acceptable alignment */
-
-#define misaligned_mem(m)  ((uintptr_t)(m) & MALLOC_ALIGN_MASK)
-
-#define misaligned_chunk(p) (misaligned_mem( chunk2mem (p)))
+/* Check if m has acceptable alignment. */
+#define misaligned_mem(m)    ((uintptr_t)(m) & MALLOC_ALIGN_MASK)
+#define misaligned_chunk(p)  (misaligned_mem(chunk2mem(p)))
 
 /* pad request bytes into a usable size -- internal version */
-/* Note: This must be a macro that evaluates to a compile time constant
-   if passed a literal constant.  */
-#define request2size(req)                                         \
-  (((req) + SIZE_SZ + MALLOC_ALIGN_MASK < MINSIZE)  ?             \
-   MINSIZE :                                                      \
-   ((req) + SIZE_SZ + MALLOC_ALIGN_MASK) & ~MALLOC_ALIGN_MASK)
+/* Note: This must be a macro that evaluates to a compile time 
+   constant if passed a literal constant. */
+#define request2size(req)  (  \
+  (req + SIZE_SZ + MALLOC_ALIGN_MASK < MINSIZE)  \
+  ? MINSIZE  \
+  : (req + SIZE_SZ + MALLOC_ALIGN_MASK) & ~MALLOC_ALIGN_MASK  \
+)
 
-/* Check if REQ overflows when padded and aligned and if the resulting
-   value is less than PTRDIFF_T.  Returns the requested size or
-   MINSIZE in case the value is less than MINSIZE, or SIZE_MAX if any
-   of the previous checks fail.  */
+/* Check if REQ overflows when padded and aligned and if the 
+   resulting value is less than PTRDIFF_T. Returns the requested 
+   size or MINSIZE in case the value is less than MINSIZE, or 
+   SIZE_MAX if any of the previous checks fail. */
 static __always_inline size_t
-checked_request2size (size_t req) __nonnull (1)
+checked_request2size(size_t req) __nonnull (1)
 {
-  _Static_assert (PTRDIFF_MAX <= SIZE_MAX / 2,
-                  "PTRDIFF_MAX is not more than half of SIZE_MAX");
+  _Static_assert(
+    PTRDIFF_MAX <= SIZE_MAX / 2,
+    "PTRDIFF_MAX is not more than half of SIZE_MAX"
+  );
 
-  if (__glibc_unlikely (req > PTRDIFF_MAX))
+  if (__glibc_unlikely(req > PTRDIFF_MAX))
     return SIZE_MAX;
 
-  /* When using tagged memory, we cannot share the end of the user
-     block with the header for the next chunk, so ensure that we
-     allocate blocks that are rounded up to the granule size.  Take
-     care not to overflow from close to MAX_SIZE_T to a small
-     number.  Ideally, this would be part of request2size(), but that
-     must be a macro that produces a compile time constant if passed
-     a constant literal.  */
-  if (__glibc_unlikely (mtag_enabled))
-    {
-      /* Ensure this is not evaluated if !mtag_enabled, see gcc PR 99551.  */
-      asm ("");
+  /* When using tagged memory, we cannot share the end of 
+     the user block with the header for the next chunk, so
+     ensure that we allocate blocks that are rounded up to
+     the granule size. Take care not to overflow from close
+     to MAX_SIZE_T to a small number. Ideally, this would be
+     part of request2size(), but that must be a macro that 
+     produces a compile time constant if passed a constant
+     literal. */
+  if (__glibc_unlikely(mtag_enabled)){
+    /* Ensure this is not evaluated if !mtag_enabled, 
+       see gcc PR 99551. */
+    asm ("");
 
-      req = (req + (__MTAG_GRANULE_SIZE - 1)) &
-	    ~(size_t)(__MTAG_GRANULE_SIZE - 1);
-    }
+    req = (
+      req + (__MTAG_GRANULE_SIZE - 1)
+    ) & ~(size_t)(__MTAG_GRANULE_SIZE - 1);
+  }
 
-  return request2size (req);
+  return request2size(req);
 }
 
 /* --------------- Physical chunk operations --------------- */
 
 
 /* size field is or'ed with PREV_INUSE when previous adjacent chunk in use */
-#define PREV_INUSE 0x1
+#define  PREV_INUSE  0x1
 
 /* extract inuse bit of previous chunk */
-#define prev_inuse(p)       ((p)->mchunk_size & PREV_INUSE)
+#define  prev_inuse(p)  ((p)->mchunk_size & PREV_INUSE)
 
 
 /* size field is or'ed with IS_MMAPPED if the chunk was obtained with mmap() */
-#define IS_MMAPPED 0x2
+#define  IS_MMAPPED  0x2
 
 /* check for mmap()'ed chunk */
-#define chunk_is_mmapped(p) ((p)->mchunk_size & IS_MMAPPED)
+#define chunk_is_mmapped(p)  ((p)->mchunk_size & IS_MMAPPED)
 
 
-/* size field is or'ed with NON_MAIN_ARENA if the chunk was obtained
-   from a non-main arena.  This is only set immediately before handing
-   the chunk to the user, if necessary.  */
-#define NON_MAIN_ARENA 0x4
+/* size field is or'ed with NON_MAIN_ARENA if the chunk was 
+   obtained from a non-main arena. This is only set immediately
+   before handing the chunk to the user, if necessary. */
+#define  NON_MAIN_ARENA  0x4
 
-/* Check for chunk from main arena.  */
-#define chunk_main_arena(p) (((p)->mchunk_size & NON_MAIN_ARENA) == 0)
+/* Check for chunk from main arena. */
+#define chunk_main_arena(p)  (((p)->mchunk_size & NON_MAIN_ARENA) == 0)
 
-/* Mark a chunk as not being on the main arena.  */
-#define set_non_main_arena(p) ((p)->mchunk_size |= NON_MAIN_ARENA)
+/* Mark a chunk as not being on the main arena. */
+#define set_non_main_arena(p)  ((p)->mchunk_size |= NON_MAIN_ARENA)
 
 
-/* Bits to mask off when extracting size
+/* Bits to mask off when extracting size.
 
-   Note: IS_MMAPPED is intentionally not masked off from size field in
-   macros for which mmapped chunks should never be seen. This should
-   cause helpful core dumps to occur if it is tried by accident by
-   people extending or adapting this malloc.
+  Note: IS_MMAPPED is intentionally not masked off from 
+  size field in macros for which mmapped chunks should 
+  never be seen. This should cause helpful core dumps to 
+  occur if it is tried by accident by people extending 
+  or adapting this malloc.
 */
-#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
+#define  SIZE_BITS  (PREV_INUSE|IS_MMAPPED|NON_MAIN_ARENA)
 
 /* Get size, ignoring use bits */
-#define chunksize(p) (chunksize_nomask (p) & ~(SIZE_BITS))
+#define  chunksize(p)  (chunksize_nomask(p) & ~(SIZE_BITS))
 
-/* Like chunksize, but do not mask SIZE_BITS.  */
-#define chunksize_nomask(p)         ((p)->mchunk_size)
+/* Like chunksize, but do not mask SIZE_BITS. */
+#define  chunksize_nomask(p)  ((p)->mchunk_size)
 
 /* Ptr to next physical malloc_chunk. */
-#define next_chunk(p) ((mchunkptr) (((char *) (p)) + chunksize (p)))
+#define  next_chunk(p)  ((mchunkptr) (((char*)(p)) + chunksize(p)))
 
-/* Size of the chunk below P.  Only valid if !prev_inuse (P).  */
-#define prev_size(p) ((p)->mchunk_prev_size)
+/* Size of the chunk below P. Only valid if !prev_inuse (P). */
+#define  prev_size(p)  ((p)->mchunk_prev_size)
 
-/* Set the size of the chunk below P.  Only valid if !prev_inuse (P).  */
-#define set_prev_size(p, sz) ((p)->mchunk_prev_size = (sz))
+/* Set the size of the chunk below P. Only valid if !prev_inuse (P). */
+#define  set_prev_size(p, sz)  ((p)->mchunk_prev_size = (sz))
 
-/* Ptr to previous physical malloc_chunk.  Only valid if !prev_inuse (P).  */
-#define prev_chunk(p) ((mchunkptr) (((char *) (p)) - prev_size (p)))
+/* Ptr to previous physical malloc_chunk. Only valid if !prev_inuse (P). */
+#define  prev_chunk(p)  ((mchunkptr) (((char*)(p)) - prev_size(p)))
 
 /* Treat space at ptr + offset as a chunk */
-#define chunk_at_offset(p, s)  ((mchunkptr) (((char *) (p)) + (s)))
+#define  chunk_at_offset(p, s)  ((mchunkptr) (((char*)(p)) + (s)))
 
 /* extract p's inuse bit */
-#define inuse(p)							      \
-  ((((mchunkptr) (((char *) (p)) + chunksize (p)))->mchunk_size) & PREV_INUSE)
+#define  inuse(p)  (( ((mchunkptr) ((char*)(p) + chunksize(p)))->mchunk_size ) & PREV_INUSE)
 
 /* set/clear chunk as being inuse without otherwise disturbing */
-#define set_inuse(p)							      \
-  ((mchunkptr) (((char *) (p)) + chunksize (p)))->mchunk_size |= PREV_INUSE
+#define  set_inuse(p)  ((mchunkptr) ((char*)(p) + chunksize(p)))->mchunk_size |= PREV_INUSE
 
-#define clear_inuse(p)							      \
-  ((mchunkptr) (((char *) (p)) + chunksize (p)))->mchunk_size &= ~(PREV_INUSE)
+#define  clear_inuse(p)  ((mchunkptr) ((char*)(p) + chunksize(p)))->mchunk_size &= ~(PREV_INUSE)
 
 
 /* check/set/clear inuse bits in known places */
-#define inuse_bit_at_offset(p, s)					      \
-  (((mchunkptr) (((char *) (p)) + (s)))->mchunk_size & PREV_INUSE)
+#define inuse_bit_at_offset(p, s)  (((mchunkptr) ((char*)(p) + s))->mchunk_size & PREV_INUSE)
 
-#define set_inuse_bit_at_offset(p, s)					      \
-  (((mchunkptr) (((char *) (p)) + (s)))->mchunk_size |= PREV_INUSE)
+#define set_inuse_bit_at_offset(p, s)  (((mchunkptr) (((char*)(p)) + s))->mchunk_size |= PREV_INUSE)
 
-#define clear_inuse_bit_at_offset(p, s)					      \
-  (((mchunkptr) (((char *) (p)) + (s)))->mchunk_size &= ~(PREV_INUSE))
+#define clear_inuse_bit_at_offset(p, s)  (((mchunkptr) ((char*)(p) + s))->mchunk_size &= ~(PREV_INUSE))
 
 
 /* Set size at head, without disturbing its use bit */
 #define set_head_size(p, s)  ((p)->mchunk_size = (((p)->mchunk_size & SIZE_BITS) | (s)))
 
 /* Set size/use field */
-#define set_head(p, s)       ((p)->mchunk_size = (s))
+#define set_head(p, s)  ((p)->mchunk_size = (s))
 
 /* Set size at footer (only when chunk is not in use) */
-#define set_foot(p, s)       (((mchunkptr) ((char *) (p) + (s)))->mchunk_prev_size = (s))
+#define set_foot(p, s)  (((mchunkptr) ((char *) (p) + (s)))->mchunk_prev_size = (s))
 
 #pragma GCC poison mchunk_size
 #pragma GCC poison mchunk_prev_size
 
-/* This is the size of the real usable data in the chunk.  Not valid for
-   dumped heap chunks.  */
+/* This is the size of the real usable data in the chunk.
+   Not valid for dumped heap chunks. */
 #define memsize(p)                                                    \
   (__MTAG_GRANULE_SIZE > SIZE_SZ && __glibc_unlikely (mtag_enabled) ? \
-    chunksize (p) - CHUNK_HDR_SZ :                                    \
-    chunksize (p) - CHUNK_HDR_SZ + SIZE_SZ)
+    chunksize(p) - CHUNK_HDR_SZ :                                     \
+    chunksize(p) - CHUNK_HDR_SZ + SIZE_SZ)
 
-/* If memory tagging is enabled the layout changes to accommodate the granule
-   size, this is wasteful for small allocations so not done by default.
-   Both the chunk header and user data has to be granule aligned.  */
-_Static_assert (__MTAG_GRANULE_SIZE <= CHUNK_HDR_SZ,
-		"memory tagging is not supported with large granule.");
+/* If memory tagging is enabled the layout changes to 
+   accommodate the granule size, this is wasteful for
+   small allocations so not done by default. Both the 
+   chunk header and user data has to be granule aligned. */
+_Static_assert(
+  __MTAG_GRANULE_SIZE <= CHUNK_HDR_SZ,
+  "memory tagging is not supported with large granule."
+);
 
-static __always_inline void *
-tag_new_usable (void *ptr)
+static __always_inline void*
+tag_new_usable(void *ptr)
 {
-  if (__glibc_unlikely (mtag_enabled) && ptr)
-    {
-      mchunkptr cp = mem2chunk(ptr);
-      ptr = __libc_mtag_tag_region (__libc_mtag_new_tag (ptr), memsize (cp));
-    }
+  if (__glibc_unlikely(mtag_enabled) && ptr){
+    mchunkptr cp = mem2chunk(ptr);
+    ptr = __libc_mtag_tag_region(__libc_mtag_new_tag(ptr), memsize(cp));
+  }
   return ptr;
 }
 
-/* Huge page used for an mmap chunk.  */
-#define MMAP_HP 0x1
+/* Huge page used for an mmap chunk. */
+#define  MMAP_HP  0x1
 
-/* Return whether an mmap chunk uses huge pages.  */
+/* Return whether an mmap chunk uses huge pages. */
 static __always_inline bool
 mmap_is_hp (mchunkptr p)
 {
   return prev_size (p) & MMAP_HP;
 }
 
-/* Return the mmap chunk's offset from mmap base.  */
+/* Return the mmap chunk's offset from mmap base. */
 static __always_inline size_t
 mmap_base_offset (mchunkptr p)
 {
-  return prev_size (p) & ~MMAP_HP;
+  return prev_size(p) & ~MMAP_HP;
 }
 
-/* Return pointer to mmap base from a chunk with IS_MMAPPED set.  */
+/* Return pointer to mmap base from a chunk with IS_MMAPPED set. */
 static __always_inline uintptr_t
-mmap_base (mchunkptr p)
+mmap_base(mchunkptr p)
 {
-  return (uintptr_t) p - mmap_base_offset (p);
+  return ((uintptr_t)(p) - mmap_base_offset(p));
 }
 
-/* Return total mmap size of a chunk with IS_MMAPPED set.  */
+/* Return total mmap size of a chunk with IS_MMAPPED set. */
 static __always_inline size_t
 mmap_size (mchunkptr p)
 {
-  return mmap_base_offset (p) + chunksize (p) + CHUNK_HDR_SZ;
+  return mmap_base_offset(p) + chunksize(p) + CHUNK_HDR_SZ;
 }
 
-/* Return a new chunk from an mmap.  */
+/* Return a new chunk from an mmap. */
 static __always_inline mchunkptr
-mmap_set_chunk (uintptr_t mmap_base, size_t mmap_size, size_t offset, bool is_hp)
-{
-  mchunkptr p = (mchunkptr) (mmap_base + offset);
-  prev_size (p) = offset | (is_hp ? MMAP_HP : 0);
-  set_head (p, (mmap_size - offset - CHUNK_HDR_SZ) | IS_MMAPPED);
+mmap_set_chunk(
+  uintptr_t mmap_base, 
+  size_t mmap_size, 
+  size_t offset, 
+  bool is_hp
+){
+  mchunkptr p  = (mchunkptr)(mmap_base + offset);
+  prev_size(p) = offset | (is_hp ? MMAP_HP : 0);
+  set_head(
+    p,
+    (mmap_size - offset - CHUNK_HDR_SZ) | IS_MMAPPED
+  );
   return p;
 }
 
@@ -1589,45 +1619,44 @@ typedef struct malloc_chunk *mbinptr;
   : largebin_index(sz)     \
 )
 
-/* Take a chunk off a bin list.  */
-static void
-unlink_chunk (mstate av, mchunkptr p)
+/* Take a chunk off a bin list. */
+static void unlink_chunk (mstate av, mchunkptr p)
 {
-  if (chunksize (p) != prev_size (next_chunk (p)))
-    malloc_printerr ("corrupted size vs. prev_size");
+  if (chunksize(p) != prev_size(next_chunk(p)))
+    malloc_printerr("corrupted size vs. prev_size");
 
   mchunkptr fd = p->fd;
   mchunkptr bk = p->bk;
 
-  if (__glibc_unlikely (fd->bk != p || bk->fd != p))
-    malloc_printerr ("corrupted double-linked list");
+  if (__glibc_unlikely(fd->bk != p || bk->fd != p))
+    malloc_printerr("corrupted double-linked list");
 
   fd->bk = bk;
   bk->fd = fd;
-  if (!in_smallbin_range (chunksize_nomask (p)) && p->fd_nextsize != NULL)
-    {
-      if (p->fd_nextsize->bk_nextsize != p
-	  || p->bk_nextsize->fd_nextsize != p)
-	malloc_printerr ("corrupted double-linked list (not small)");
 
-      if (fd->fd_nextsize == NULL)
-	{
-	  if (p->fd_nextsize == p)
-	    fd->fd_nextsize = fd->bk_nextsize = fd;
-	  else
-	    {
-	      fd->fd_nextsize = p->fd_nextsize;
-	      fd->bk_nextsize = p->bk_nextsize;
-	      p->fd_nextsize->bk_nextsize = fd;
-	      p->bk_nextsize->fd_nextsize = fd;
-	    }
-	}
-      else
-	{
-	  p->fd_nextsize->bk_nextsize = p->bk_nextsize;
-	  p->bk_nextsize->fd_nextsize = p->fd_nextsize;
-	}
+  if (!in_smallbin_range (chunksize_nomask (p)) && p->fd_nextsize != NULL){
+    if (
+      p->fd_nextsize->bk_nextsize != p || 
+      p->bk_nextsize->fd_nextsize != p
+    )
+    	malloc_printerr("corrupted double-linked list (not small)");
+
+    if (fd->fd_nextsize == NULL){
+  	  if (p->fd_nextsize == p)
+	      fd->fd_nextsize = fd->bk_nextsize = fd;
+
+      else{
+        fd->fd_nextsize = p->fd_nextsize;
+        fd->bk_nextsize = p->bk_nextsize;
+        p->fd_nextsize->bk_nextsize = fd;
+        p->bk_nextsize->fd_nextsize = fd;
+      }
     }
+    else{
+      p->fd_nextsize->bk_nextsize = p->bk_nextsize;
+      p->bk_nextsize->fd_nextsize = p->fd_nextsize;
+    }
+  }
 }
 
 /* Unsorted chunks
@@ -1682,7 +1711,7 @@ unlink_chunk (mstate av, mchunkptr p)
   empty during traversal in malloc.
 */
 
-/* Conservatively use 32 bits per map word, even if on 64bit system */
+/* Conservatively use 32 bits per map word, even if on 64-bit system */
 #define BINMAPSHIFT    5
 #define BITSPERMAP     (1U << BINMAPSHIFT)
 #define BINMAPSIZE     (NBINS / BITSPERMAP)
@@ -1695,37 +1724,31 @@ unlink_chunk (mstate av, mchunkptr p)
 #define get_binmap(m, i)    (m)->binmap[idx2block(i)] &    idx2bit(i)
 
 
-/*
-   ATTEMPT_TRIMMING_THRESHOLD is the size of a chunk in free()
-   that may attempt trimming of an arena's heap. This is a heuristic, so the
-   exact value should not matter too much. It is defined at half the default
-   trim threshold as a compromise heuristic to only attempt trimming if it is
-   likely to release a significant amount of memory.
- */
+/* ATTEMPT_TRIMMING_THRESHOLD is the size of a chunk in 
+   free() that may attempt trimming of an arena's heap.
+   - This is a heuristic, so the exact value should not 
+   matter too much.
+   - It is defined at half the default trim threshold as 
+   a compromise heuristic to only attempt trimming if it 
+   is likely to release a significant amount of memory. */
+#define  ATTEMPT_TRIMMING_THRESHOLD  (65536UL)
 
-#define ATTEMPT_TRIMMING_THRESHOLD  (65536UL)
+/* NONCONTIGUOUS_BIT indicates that MORECORE does not 
+   return contiguous regions. Otherwise, contiguity is
+   exploited in merging together, when possible, results
+   from consecutive MORECORE calls.
 
-/*
-   NONCONTIGUOUS_BIT indicates that MORECORE does not return contiguous
-   regions.  Otherwise, contiguity is exploited in merging together,
-   when possible, results from consecutive MORECORE calls.
-
-   The initial value comes from MORECORE_CONTIGUOUS, but is
-   changed dynamically if mmap is ever used as an sbrk substitute.
- */
-
-#define NONCONTIGUOUS_BIT     (2U)
+   The initial value comes from MORECORE_CONTIGUOUS, but
+   is changed dynamically if mmap is ever used as an sbrk
+   substitute. */
+#define  NONCONTIGUOUS_BIT  (2U)
 
 #define contiguous(M)          (((M)->flags & NONCONTIGUOUS_BIT) == 0)
 #define set_noncontiguous(M)   ((M)->flags |= NONCONTIGUOUS_BIT)
 #define set_contiguous(M)      ((M)->flags &= ~NONCONTIGUOUS_BIT)
 
 
-/*
-   ----------- Internal state representation and initialization -----------
- */
-
-
+/* ----------- Internal state representation and initialization ----------- */
 struct malloc_state
 {
   /* Serialize access.  */
@@ -3798,12 +3821,9 @@ __libc_calloc (size_t n, size_t elem_size)
 }
 #endif /* IS_IN (libc) */
 
-/*
-   ------------------------------ malloc ------------------------------
- */
+/* -------------------- malloc -------------------- */
 
-static void *
-_int_malloc (mstate av, size_t bytes)
+static void* _int_malloc(mstate av, size_t bytes)
 {
   INTERNAL_SIZE_T nb;               /* normalized request size */
   unsigned int idx;                 /* associated bin index */
@@ -3827,213 +3847,236 @@ _int_malloc (mstate av, size_t bytes)
   size_t tcache_unsorted_count;	    /* count of unsorted chunks processed */
 #endif
 
-  /*
-     Convert request size to internal form by adding SIZE_SZ bytes
-     overhead plus possibly more to obtain necessary alignment and/or
-     to obtain a size of at least MINSIZE, the smallest allocatable
-     size. Also, checked_request2size returns false for request sizes
-     that are so large that they wrap around zero when padded and
-     aligned.
-   */
+  /* Convert request size to internal form by adding 
+     SIZE_SZ bytes overhead plus possibly more to 
+     obtain necessary alignment and/or to obtain a size 
+     of at least MINSIZE, the smallest allocatable size. 
+     Also, checked_request2size returns false for request 
+     sizes that are so large that they wrap around zero 
+     when padded and aligned. */
+  if (bytes > PTRDIFF_MAX){
+    __set_errno (ENOMEM);
+    return NULL;
+  }
+  nb = checked_request2size(bytes);
 
-  if (bytes > PTRDIFF_MAX)
-    {
-      __set_errno (ENOMEM);
-      return NULL;
-    }
-  nb = checked_request2size (bytes);
+  /* There are no usable arenas. Fall back to sysmalloc 
+     to get a chunk from mmap. */
+  if (__glibc_unlikely(av == NULL)){
+    void *p = sysmalloc(nb, av);
+    if (p != NULL)
+    	alloc_perturb(p, bytes);
 
-  /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
-     mmap.  */
-  if (__glibc_unlikely (av == NULL))
-    {
-      void *p = sysmalloc (nb, av);
-      if (p != NULL)
-	alloc_perturb (p, bytes);
-      return p;
-    }
+    return p;
+  }
 
-  /*
-     If a small request, check regular bin.  Since these "smallbins"
-     hold one size each, no searching within bins is necessary.
-     (For a large request, we need to wait until unsorted chunks are
-     processed to find best fit. But for small ones, fits are exact
-     anyway, so we can check now, which is faster.)
-   */
+  /* If a small request, check regular bin. Since these 
+     "smallbins" hold one size each, no searching within 
+     bins is necessary.
+     (For a large request, we need to wait until unsorted 
+     chunks are processed to find best fit. But for small 
+     ones, fits are exact anyway, so we can check now, 
+     which is faster.) */
+  if (in_smallbin_range(nb)){
+    idx = smallbin_index(nb);
+    bin = bin_at(av, idx);
 
-  if (in_smallbin_range (nb))
-    {
-      idx = smallbin_index (nb);
-      bin = bin_at (av, idx);
+    victim = lsat(bin);
+    if (victim != bin){
+      bck = victim->bk;
+  	  if (__glibc_unlikely(bck->fd != victim))
+        malloc_printerr ("malloc(): smallbin double linked list corrupted");
 
-      if ((victim = last (bin)) != bin)
-        {
-          bck = victim->bk;
-	  if (__glibc_unlikely (bck->fd != victim))
-	    malloc_printerr ("malloc(): smallbin double linked list corrupted");
-          set_inuse_bit_at_offset (victim, nb);
-          bin->bk = bck;
-          bck->fd = bin;
+      set_inuse_bit_at_offset(victim, nb);
+      bin->bk = bck;
+      bck->fd = bin;
 
-          if (av != &main_arena)
-	    set_non_main_arena (victim);
-          check_malloced_chunk (av, victim, nb);
+      if (av != &main_arena)
+  	    set_non_main_arena (victim);
+
+      check_malloced_chunk(av, victim, nb);
+
 #if USE_TCACHE
-	  /* While we're here, if we see other chunks of the same size,
-	     stash them in the tcache.  */
-	  size_t tc_idx = csize2tidx (nb);
-	  if (tc_idx < mp_.tcache_small_bins)
-	    {
+  	  /* While we're here, if we see other chunks 
+         of the same size, stash them in the tcache. */
+	    size_t tc_idx = csize2tidx(nb);
+	    if (tc_idx < mp_.tcache_small_bins){
 	      mchunkptr tc_victim;
 
-	      if (__glibc_unlikely (tcache_inactive ()))
-		tcache_init (av);
+	      if (__glibc_unlikely(tcache_inactive()))
+      		tcache_init(av);
 
-	      /* While bin not empty and tcache not full, copy chunks over.  */
-	      while (tcache->num_slots[tc_idx] != 0
-		     && (tc_victim = last (bin)) != bin)
-		{
-		  if (tc_victim != NULL)
-		    {
-		      bck = tc_victim->bk;
-		      set_inuse_bit_at_offset (tc_victim, nb);
-		      if (av != &main_arena)
-			set_non_main_arena (tc_victim);
-		      bin->bk = bck;
-		      bck->fd = bin;
+        /* While bin not empty and tcache not full, 
+           copy chunks over. */
+        tc_victim = last(bin);
+	      while(
+          tcache->num_slots[tc_idx] != 0 && 
+          tc_victim != bin
+        ){
+    		  if (tc_victim != NULL){
+  		      bck = tc_victim->bk;
+	  	      set_inuse_bit_at_offset(tc_victim, nb);
 
-		      tcache_put (tc_victim, tc_idx);
-	            }
-		}
+            if (av != &main_arena)
+        			set_non_main_arena (tc_victim);
+
+  		      bin->bk = bck;
+	  	      bck->fd = bin;
+
+  		      tcache_put(tc_victim, tc_idx);
+          }
+        }
 	    }
 #endif
-          void *p = chunk2mem (victim);
-          alloc_perturb (p, bytes);
-          return p;
-        }
+      void *p = chunk2mem(victim);
+      alloc_perturb(p, bytes);
+      return p;
     }
+  }
 
-  else
-    {
-      idx = largebin_index (nb);
-    }
+  else{
+    idx = largebin_index(nb);
+  }
 
-  /*
-     Process recently freed or remaindered chunks, taking one only if
-     it is exact fit, or, if this a small request, the chunk is remainder from
-     the most recent non-exact fit.  Place other traversed chunks in
-     bins.  Note that this step is the only place in any routine where
-     chunks are placed in bins.
+  /* Process recently freed or remaindered chunks, taking one 
+     only if it is exact fit, or, if this a small request, the 
+     chunk is remainder from the most recent non-exact fit. 
 
-     The outer loop here is needed because we might not realize until
-     near the end of malloc that we should have consolidated, so must
-     do so and retry. This happens at most once, and only when we would
-     otherwise need to expand memory to service a "small" request.
-   */
+     Place other traversed chunks in bins. Note that this step 
+     is the only place in any routine where chunks are placed 
+     in bins.
+
+     The outer loop here is needed because we might not realize 
+     until near the end of malloc that we should have consolidated, 
+     so must do so and retry. This happens at most once, and only 
+     when we would otherwise need to expand memory to service a 
+     "small" request. */
 
 #if USE_TCACHE
   INTERNAL_SIZE_T tcache_nb = 0;
-  size_t tc_idx = csize2tidx (nb);
+  size_t tc_idx = csize2tidx(nb);
+
   if (tc_idx < mp_.tcache_small_bins)
     tcache_nb = nb;
-  int return_cached = 0;
 
+  int return_cached = 0;
   tcache_unsorted_count = 0;
 #endif
 
-  for (;; )
-    {
-      int iters = 0;
-      while ((victim = unsorted_chunks (av)->bk) != unsorted_chunks (av))
-        {
-          bck = victim->bk;
-          size = chunksize (victim);
-          mchunkptr next = chunk_at_offset (victim, size);
+  for (;;){
+    int iters = 0;
+    victim = unsorted_chunks(av)->bk;
 
-          if (__glibc_unlikely (size <= CHUNK_HDR_SZ)
-              || __glibc_unlikely (size > av->system_mem))
-            malloc_printerr ("malloc(): invalid size (unsorted)");
-          if (__glibc_unlikely (chunksize_nomask (next) < CHUNK_HDR_SZ)
-              || __glibc_unlikely (chunksize_nomask (next) > av->system_mem))
-            malloc_printerr ("malloc(): invalid next size (unsorted)");
-          if (__glibc_unlikely ((prev_size (next) & ~(SIZE_BITS)) != size))
-            malloc_printerr ("malloc(): mismatching next->prev_size (unsorted)");
-          if (__glibc_unlikely (bck->fd != victim)
-              || __glibc_unlikely (victim->fd != unsorted_chunks (av)))
-            malloc_printerr ("malloc(): unsorted double linked list corrupted");
-          if (__glibc_unlikely (prev_inuse (next)))
-            malloc_printerr ("malloc(): invalid next->prev_inuse (unsorted)");
+    while(victim != unsorted_chunks(av)){
+      bck = victim->bk;
+      size = chunksize(victim);
+      mchunkptr next = chunk_at_offset(victim, size);
 
-          /*
-             If a small request, try to use last remainder if it is the
-             only chunk in unsorted bin.  This helps promote locality for
-             runs of consecutive small requests. This is the only
-             exception to best-fit, and applies only when there is
-             no exact fit for a small chunk.
-           */
+      if (
+        __glibc_unlikely(size <= CHUNK_HDR_SZ) || 
+        __glibc_unlikely(size > av->system_mem)
+      )
+        malloc_printerr("malloc(): invalid size (unsorted)");
 
-          if (in_smallbin_range (nb) &&
-              bck == unsorted_chunks (av) &&
-              victim == av->last_remainder &&
-              (unsigned long) (size) > (unsigned long) (nb + MINSIZE))
-            {
-              /* split and reattach remainder */
-              remainder_size = size - nb;
-              remainder = chunk_at_offset (victim, nb);
-              unsorted_chunks (av)->bk = unsorted_chunks (av)->fd = remainder;
-              av->last_remainder = remainder;
-              remainder->bk = remainder->fd = unsorted_chunks (av);
-              if (!in_smallbin_range (remainder_size))
-                {
-                  remainder->fd_nextsize = NULL;
-                  remainder->bk_nextsize = NULL;
-                }
+      if (
+        __glibc_unlikely(chunksize_nomask(next) < CHUNK_HDR_SZ) || 
+        __glibc_unlikely(chunksize_nomask(next) > av->system_mem)
+      )
+        malloc_printerr("malloc(): invalid next size (unsorted)");
 
-              set_head (victim, nb | PREV_INUSE |
-                        (av != &main_arena ? NON_MAIN_ARENA : 0));
-              set_head (remainder, remainder_size | PREV_INUSE);
-              set_foot (remainder, remainder_size);
+      if (__glibc_unlikely(
+        (prev_size(next) & ~(SIZE_BITS)) != size
+      ))
+        malloc_printerr("malloc(): mismatching next->prev_size (unsorted)");
 
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
-            }
+      if (
+        __glibc_unlikely(bck->fd != victim) || 
+        __glibc_unlikely(victim->fd != unsorted_chunks(av))
+      )
+        malloc_printerr("malloc(): unsorted double linked list corrupted");
 
-          /* remove from unsorted list */
-          unsorted_chunks (av)->bk = bck;
-          bck->fd = unsorted_chunks (av);
+      if (__glibc_unlikely(prev_inuse(next)))
+        malloc_printerr("malloc(): invalid next->prev_inuse (unsorted)");
 
-          /* Take now instead of binning if exact fit */
+      /* If a small request, try to use the last remainder 
+         if it is the only chunk in the unsorted bin. This 
+         helps promote locality for runs of consecutive small 
+         requests.
 
-          if (size == nb)
-            {
-              set_inuse_bit_at_offset (victim, size);
-              if (av != &main_arena)
-		set_non_main_arena (victim);
+         This is the only exception to best-fit, and applies 
+         only when there is no exact fit for a small chunk. */
+
+      if (
+        in_smallbin_range(nb) &&
+        bck == unsorted_chunks(av) &&
+        victim == av->last_remainder &&
+        (unsigned long)(size) > (unsigned long)(nb + MINSIZE)
+      ){
+        /* split and reattach remainder */
+        remainder_size = (size - nb);
+        remainder = chunk_at_offset(victim, nb);
+        unsorted_chunks(av)->bk = unsorted_chunks(av)->fd = remainder;
+        av->last_remainder = remainder;
+        remainder->bk = remainder->fd = unsorted_chunks(av);
+
+        if (!in_smallbin_range(remainder_size)){
+          remainder->fd_nextsize = NULL;
+          remainder->bk_nextsize = NULL;
+        }
+
+        set_head(
+          victim, 
+          nb | PREV_INUSE | (av != &main_arena ? NON_MAIN_ARENA : 0)
+        );
+
+        set_head(
+          remainder, 
+          remainder_size | PREV_INUSE
+        );
+
+        set_foot(remainder, remainder_size);
+        check_malloced_chunk(av, victim, nb);
+
+        void *p = chunk2mem(victim);
+        alloc_perturb(p, bytes);
+
+        return p;
+      }
+
+      /* remove from unsorted list */
+      unsorted_chunks(av)->bk = bck;
+      bck->fd = unsorted_chunks(av);
+
+      /* Take now instead of binning if exact fit */
+      if (size == nb){
+        set_inuse_bit_at_offset(victim, size);
+        if (av != &main_arena)
+      		set_non_main_arena(victim);
+
 #if USE_TCACHE
-	      if (__glibc_unlikely (tcache_inactive ()))
-		tcache_init (av);
+	      if (__glibc_unlikely(tcache_inactive()))
+      		tcache_init(av);
+
 	      /* Fill cache first, return to user only if cache fills.
-		 We may return one of these chunks later.  */
-	      if (tcache_nb > 0
-		  && tcache->num_slots[tc_idx] != 0)
-		{
-		  tcache_put (victim, tc_idx);
-		  return_cached = 1;
-		  continue;
-		}
-	      else
-		{
+      		 We may return one of these chunks later. */
+	      if(
+          tcache_nb > 0 && 
+          tcache->num_slots[tc_idx] != 0
+        ){
+    		  tcache_put(victim, tc_idx);
+    		  return_cached = 1;
+    		  continue;
+        }
+	      else{
 #endif
-              check_malloced_chunk (av, victim, nb);
-              void *p = chunk2mem (victim);
-              alloc_perturb (p, bytes);
-              return p;
+          check_malloced_chunk(av, victim, nb);
+          void *p = chunk2mem(victim);
+          alloc_perturb(p, bytes);
+          return p;
 #if USE_TCACHE
-		}
+        }
 #endif
-            }
+      }
 
           /* Place chunk in bin.  Only splitting can put
              small chunks into the unsorted bin. */
@@ -4131,13 +4174,11 @@ _int_malloc (mstate av, size_t bytes)
 	}
 #endif
 
-      /*
-         If a large request, scan through the chunks of current bin in
-         sorted order to find smallest that fits.  Use the skip list for this.
-       */
+      /* If a large request, scan through the chunks of the 
+         current bin in sorted order to find smallest that 
+         fits. Use the skip list for this. */
 
-      if (!in_smallbin_range (nb))
-        {
+      if (!in_smallbin_range (nb)){
           bin = bin_at (av, idx);
 
           /* skip scan if empty or largest chunk is too small */
@@ -4161,15 +4202,13 @@ _int_malloc (mstate av, size_t bytes)
               unlink_chunk (av, victim);
 
               /* Exhaust */
-              if (remainder_size < MINSIZE)
-                {
+              if (remainder_size < MINSIZE){
                   set_inuse_bit_at_offset (victim, size);
                   if (av != &main_arena)
 		    set_non_main_arena (victim);
                 }
               /* Split */
-              else
-                {
+              else{
                   remainder = chunk_at_offset (victim, nb);
                   /* We cannot assume the unsorted list is empty and therefore
                      have to perform a complete insert here.  */
@@ -4181,8 +4220,7 @@ _int_malloc (mstate av, size_t bytes)
                   remainder->fd = fwd;
                   bck->fd = remainder;
                   fwd->bk = remainder;
-                  if (!in_smallbin_range (remainder_size))
-                    {
+                  if (!in_smallbin_range (remainder_size)){
                       remainder->fd_nextsize = NULL;
                       remainder->bk_nextsize = NULL;
                     }
@@ -4215,43 +4253,36 @@ _int_malloc (mstate av, size_t bytes)
       map = av->binmap[block];
       bit = idx2bit (idx);
 
-      for (;; )
-        {
-          /* Skip rest of block if there are no more set bits in this block.  */
-          if (bit > map || bit == 0)
-            {
-              do
-                {
+      for (;;){
+          /* Skip rest of block if there are no more set bits in this block. */
+          if (bit > map || bit == 0){
+              do{
                   if (++block >= BINMAPSIZE) /* out of bins */
                     goto use_top;
-                }
-              while ((map = av->binmap[block]) == 0);
+                } while ((map = av->binmap[block]) == 0);
 
-              bin = bin_at (av, (block << BINMAPSHIFT));
+              bin = bin_at(av, (block << BINMAPSHIFT));
               bit = 1;
             }
 
           /* Advance to bin with set bit. There must be one. */
-          while ((bit & map) == 0)
-            {
-              bin = next_bin (bin);
+          while ((bit & map) == 0){
+              bin = next_bin(bin);
               bit <<= 1;
               assert (bit != 0);
             }
 
-          /* Inspect the bin. It is likely to be non-empty */
-          victim = last (bin);
+          /* Inspect the bin. It is likely to be non-empty. */
+          victim = last(bin);
 
           /*  If a false alarm (empty bin), clear the bit. */
-          if (victim == bin)
-            {
+          if (victim == bin){
               av->binmap[block] = map &= ~bit; /* Write through */
-              bin = next_bin (bin);
+              bin = next_bin(bin);
               bit <<= 1;
             }
 
-          else
-            {
+          else{
               size = chunksize (victim);
 
               /*  We know the first chunk in this bin is big enough to use. */
@@ -4263,16 +4294,14 @@ _int_malloc (mstate av, size_t bytes)
               unlink_chunk (av, victim);
 
               /* Exhaust */
-              if (remainder_size < MINSIZE)
-                {
+              if (remainder_size < MINSIZE){
                   set_inuse_bit_at_offset (victim, size);
                   if (av != &main_arena)
 		    set_non_main_arena (victim);
                 }
 
               /* Split */
-              else
-                {
+              else{
                   remainder = chunk_at_offset (victim, nb);
 
                   /* We cannot assume the unsorted list is empty and therefore
@@ -4289,8 +4318,7 @@ _int_malloc (mstate av, size_t bytes)
                   /* advertise as last remainder */
                   if (in_smallbin_range (nb))
                     av->last_remainder = remainder;
-                  if (!in_smallbin_range (remainder_size))
-                    {
+                  if (!in_smallbin_range (remainder_size)){
                       remainder->fd_nextsize = NULL;
                       remainder->bk_nextsize = NULL;
                     }
@@ -4328,8 +4356,7 @@ _int_malloc (mstate av, size_t bytes)
       if (__glibc_unlikely (size > av->system_mem))
         malloc_printerr ("malloc(): corrupted top size");
 
-      if ((unsigned long) (size) >= (unsigned long) (nb + MINSIZE))
-        {
+      if ((unsigned long) (size) >= (unsigned long) (nb + MINSIZE)){
           remainder_size = size - nb;
           remainder = chunk_at_offset (victim, nb);
           av->top = remainder;
@@ -4343,11 +4370,8 @@ _int_malloc (mstate av, size_t bytes)
           return p;
         }
 
-      /*
-         Otherwise, relay to handle system-dependent cases
-       */
-      else
-        {
+      /* Otherwise, relay to handle system-dependent cases. */
+      else{
           void *p = sysmalloc (nb, av);
           if (p != NULL)
             alloc_perturb (p, bytes);
