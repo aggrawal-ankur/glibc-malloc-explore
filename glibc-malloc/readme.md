@@ -41,9 +41,12 @@ A complete description of glibc-malloc
     - [Number of largebins](#number-of-largebins)
     - [The situation of the unsorted bin](#the-situation-of-the-unsorted-bin)
   - [Order of bins](#order-of-bins)
-  - [Bin Spacing](#bin-spacing)
-    - [Smallbin Spacing](#smallbin-spacing)
-    - [Largebin Spacing](#largebin-spacing)
+  - [Smallbin Spacing](#smallbin-spacing)
+  - [Largebin Spacing](#largebin-spacing)
+  - [The Actual Largebins](#the-actual-largebins)
+    - [Macro #1: bin\_index(sz)](#macro-1-bin_indexsz)
+    - [Macro #2: in\_smallbin\_range(sz)](#macro-2-in_smallbin_rangesz)
+    - [Macro #3: smallbin\_index(sz)](#macro-3-smallbin_indexsz)
 ---
 
 # Introduction To Userspace Memory Allocators
@@ -129,6 +132,12 @@ Before we dive into the details, I want to acknowledge the problems I have incur
 
 **Problem2: A concept can't be explained fully in the moment.**
   - I simply acknowledge it and ensure that the concept is properly explained later and the explanation is not hidden or buried under paragraphs.
+
+**Problem3: The use of KB/MB quantities.**
+  - The International System of Units (SI) and many hardware manufacturers (for hard drives and SSDs) use the decimal system, where quantities are based in decimal system. For ex: 1MB is 10<sup>6</sup> bytes.
+  - But computers operate with binary numbers system. According to the IEC standards established in 1998, MB should be strictly 10<sup>6</sup> bytes and MiB should be 2<sup>20</sup> bytes.
+  - In computing context, MB/KiB quantities are used when it actually implies MiB/KiB.
+  - This document strictly adheres to the **IEC 80000-13 standard**.
 
 # Scope and Reproducibility
 
@@ -1169,9 +1178,7 @@ We have three more questions.
 
 Even if bin 0 doesn't exist, that only reduces the count by 1, making the bins 127, instead of 128. But the above calculation is coming down to 126, not 127. *Where did the remaining bin go?* We will search that bin soon.
 
-## Bin Spacing
-
-### Smallbin Spacing
+## Smallbin Spacing
 
 We know that smallbins manage chunks falling in specific size classes. How to obtain those size classes?
 
@@ -1235,7 +1242,7 @@ Let's talk about *"if that would be a valid chunk size the small bins are bumped
 
 Now that we are clear about the spacing in smallbins, let's talk about largebins.
 
-### Largebin Spacing
+## Largebin Spacing
 
 This is the annotation about spacing among largebins.
 ```
@@ -1250,7 +1257,7 @@ Larger bins are approximately logarithmically spaced.
      1 bin  of size    what's left
 ```
 
-Now it's time to talk about the problems with this pyramid. Yeah, it is applicable to 32-bit only, but that's a very small problem.
+The biggest problem with this pyramid is the sloppy use of the term "size.
 
 We have recently studied the smallbin size classes. Do we have "64 bins of size SMALLBIN_WIDTH bytes" or we have "64 bins with size classes separated by SMALLBIN_WIDTH bytes, where the first valid size class is for MINSIZE bytes and the last size class is for (MIN_LARGE_SIZE-SMALLBIN_WIDTH) bytes". We know the answer.
 
@@ -1271,26 +1278,32 @@ A better version could be:
 
 **Note: BIN_WIDTH is not a valid macro.**
 
-But this is only applicable to 32-bit. Before we make the 64-bit version of this table, let's study this table.
+The annotation refers to the bin classes being logarithmically spaced, not the individual bins within a class. Within each class, bins are linearly spaced by a fixed BIN_WIDTH. Across classes, BIN_WIDTH itself scales by 2<sup>3</sup>, which is what gives the logarithmic spacing.
 
-You will notice an extra column in the end. That's what the annotation is about. Although the annotation says that bins are approximately logarithmically spaced, I think that "bin classes are approx. log spaced". I am no mathematician, so I'd not argue. But I think so because, as per the pyramid, "the log spaced" statement scales with a bin class, not per bin. If every bin scaled by 2^3, that's a different thing. My understanding of this statement can be faulty though.
-
-Bins in 32-bit are scaled by 3 and 2^3 gives SMALLBIN_WIDTH in 32-bit, does that mean 64-bit bins are scaled by 4? Again, no annotation that acknowledges this, except this one, which I don't know understand.
+But this is only applicable to 32-bit. To make the 64-bit version, we need to know how the width scales in 64-bit. There is no annotation directly acknowledging this, but we do have a weird looking annotation.
 ```
 // XXX It remains to be seen whether it is good to keep the widths of
 // XXX the buckets the same or whether it should be scaled by a factor
 // XXX of two as well.
 ```
+  - First of all, don't assume XXX is a placeholder for something.
+  - Second, this annotation is where the tension is visible. It is questioning whether BIN_WIDTH should scale with the architecture.
 
-First the "bump up" situation, then this scaling situation, I am not sure why these things aren't clearly specified. Because they are not specified, the most probably answer is that bins in 64-bit are also scaled by 3.
-  - I am not sure why the scaling factor is fixed for both the architectures, although scale-factor=3 makes more sense because the 4-scaled values will be much higher and we have to think if that really helps.
+If BIN_WIDTH scaled with the architecture, we would get, 2<sup>4<sup>, 2<sup>8<sup>, 2<sup>12<sup>, 2<sup>16<sup>, 2<sup>20<sup>, and 2<sup>24<sup>. These are 16, 256, 4096, 65536, 1048576 (1 MiB), and 16777216 (16 MiB).
 
-So, the bin pyramid for 64-bit should be:
+If you read this annotation,
+```
+The bins top out around 1MB because we expect to service
+large requests via mmap.
+```
+.... you will find that we want to service extremely large requests via mmap. If BIN_WIDTH scaled with the architecture, our definition of extremely large would require a serious thought. We might have to change our strategy completely. Since there is no clarity about whether BIN_WIDTH is scaling with the architecture, or we are restricting to pow(2, 3) only, we will assume the latter.
+
+Based on this, the bin pyramid for 64-bit should be:
 
 | Bin Classification | Count of bins | BIN_WIDTH (in bytes) | BIN_WIDTH (pow-of-2) |
 | :----------------- | :------------ | :------------------- | :------------------- |
 | Unsorted bin       | 1             | NA                   | NA                   |
-| Smallbin           | 64            | 16                   | pow(2, 3)            |
+| Smallbin           | 64            | 16                   | pow(2, 4)            |
 | Largebin Cat1      | 32            | 64                   | pow(2, 6)            |
 | Largebin Cat2      | 16            | 512                  | pow(2, 9)            |
 | Largebin Cat3      | 8             | 4096                 | pow(2, 12)           |
@@ -1299,3 +1312,63 @@ So, the bin pyramid for 64-bit should be:
 | Largebin Cat6      | 1             | what's left          | ?                    |
 
 ---
+
+It is time to find the actual largebins, the last interesting thing in the bookkeeping section. Make sure you enjoy it, because, I am not sure if anything as interesting as this piece exist in the whole glibc-malloc.
+
+## The Actual Largebins
+
+The smallbins situation is already clear.
+```
+smallbins ∈ [MINSIZE, (MIN_LARGE_SIZE-SMALLBIN_WIDTH)]
+```
+
+On 64-bit, the last smallbin is for size class 1008 and the first largebin of the first category would be starting at 1024, spanning across 64 bytes.
+
+There are four macros that we have to understand to form the actual list of largebins.
+```c
+bin_index(sz)
+in_smallbin_range(sz)
+smallbin_index(sz)
+largebin_index(sz)
+```
+
+Although these macros are suffixed with `index`, they don't actually calculate an index; what they calculate is the bin number and that number is fed to `bin_at(M, i)` which gives the actual bin headers for a bin.
+
+In simple words, we have 128/127/126 bins and each bin has a number to identify it in the list. These bins are implemented as an array of bin headers. So, it is the bin header that truly gets an indexable value, not the bin itself.
+
+Let's talk about these macros.
+
+### Macro #1: bin_index(sz)
+
+This macro is a high level handler that takes a size and directs the request to the appropriate bin handler.
+```c
+#define bin_index(sz)    ( \
+  in_smallbin_range(sz)    \
+  ? smallbin_index(sz)     \
+  : largebin_index(sz)     \
+)
+```
+
+There is no sign of unsorted bin because, unsorted bin sits before the smallbin/largebin pathway. The allocator always starts with checking if there is anything in the unsorted bin that could be reused, for exactly the reasons we have already discussed.
+
+### Macro #2: in_smallbin_range(sz)
+
+This macro takes a size and checks whether it is valid smallbin size class. If it is, the request is directed to the appropriate smallbin handler, otherwise, it is considered a largebin appropriate size.
+```c
+#define in_smallbin_range(sz)    ( \
+  (unsigned long)(sz) < (unsigned long)(MIN_LARGE_SIZE) \
+)
+```
+
+### Macro #3: smallbin_index(sz)
+
+This macro handles smallbin number calculation.
+```c
+#define smallbin_index(sz)    ( \
+  ( \
+    (SMALLBIN_WIDTH == 16)     \
+    ? (((unsigned)(sz)) >> 4)  \
+    : (((unsigned)(sz)) >> 3)  \
+  ) + SMALLBIN_CORRECTION      \
+)
+```
