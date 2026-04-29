@@ -1520,7 +1520,7 @@ typedef struct malloc_chunk *mbinptr;
 
 /* addressing -- note that bin_at(0) does not exist */
 #define bin_at(m, i)    (mbinptr) ( \
-  ((char*) &((m)->bins[ ((i)-1) * 2] )) - offsetof(struct malloc_chunk, fd)  \
+  ((char*) &( (m)->bins[(i-1)*2] )) - offsetof(struct malloc_chunk, fd)  \
 )
 
 /* analog of ++bin */
@@ -1674,7 +1674,7 @@ static void unlink_chunk (mstate av, mchunkptr p)
 
   The otherwise unindexable 1-bin is used to hold unsorted chunks.
 */
-#define unsorted_chunks(M)    bin_at(M, 1))
+#define unsorted_chunks(M)    bin_at(M, 1)
 
 /* Top: The top-most available chunk (i.e., the one bordering 
         the end of available memory) is treated specially.
@@ -1772,16 +1772,16 @@ struct malloc_state
   /* Linked list */
   struct malloc_state *next;
 
-  /* Linked list for free arenas.  Access to this field is serialized
-     by free_list_lock in arena.c.  */
+  /* Linked list for free arenas. Access to this field 
+  is serialized by free_list_lock in arena.c. */
   struct malloc_state *next_free;
 
-  /* Number of threads attached to this arena.  0 if the arena is on
-     the free list.  Access to this field is serialized by
-     free_list_lock in arena.c.  */
+  /* Number of threads attached to this arena. 0 if the 
+  arena is on the free list. Access to this field is 
+  serialized by free_list_lock in arena.c. */
   INTERNAL_SIZE_T attached_threads;
 
-  /* Memory allocated from the system in this arena.  */
+  /* Memory allocated from the system in this arena. */
   INTERNAL_SIZE_T system_mem;
   INTERNAL_SIZE_T max_system_mem;
 };
@@ -1795,11 +1795,11 @@ struct malloc_par
   INTERNAL_SIZE_T arena_test;
   INTERNAL_SIZE_T arena_max;
 
-  /* Transparent Large Page support.  */
+  /* Transparent Large Page support. */
   enum malloc_thp_mode_t thp_mode;
   INTERNAL_SIZE_T thp_pagesize;
-  /* A value different than 0 means to align mmap allocation to hp_pagesize
-     add hp_flags on flags.  */
+  /* A value different than 0 means to align mmap 
+  allocation to hp_pagesize add hp_flags on flags. */
   INTERNAL_SIZE_T hp_pagesize;
   int hp_flags;
 
@@ -1807,9 +1807,9 @@ struct malloc_par
   int n_mmaps;
   int n_mmaps_max;
   int max_n_mmaps;
-  /* the mmap_threshold is dynamic, until the user sets
-     it manually, at which point we need to disable any
-     dynamic behavior. */
+  /* The mmap_threshold is dynamic, until the user sets
+  it manually, at which point we need to disable any
+  dynamic behavior. */
   int no_dyn_threshold;
 
   /* Statistics */
@@ -1832,10 +1832,11 @@ struct malloc_par
 };
 
 /* There are several instances of this struct ("arenas") in this
-   malloc.  If you are adapting this malloc in a way that does NOT use
-   a static or mmapped malloc_state, you MUST explicitly zero-fill it
-   before using. This malloc relies on the property that malloc_state
-   is initialized to all zeroes (as is true of C statics).  */
+   malloc.
+   - If you are adapting this malloc in a way that does NOT use
+   a static or mmapped malloc_state, you MUST explicitly zero-fill
+   it before using. This malloc relies on the property that malloc_state
+   is initialized to all zeroes (as is true of C statics). */
 
 static struct malloc_state main_arena =
 {
@@ -1844,7 +1845,7 @@ static struct malloc_state main_arena =
   .attached_threads = 1
 };
 
-/* There is only one instance of the malloc parameters.  */
+/* There is only one instance of the malloc parameters. */
 
 static struct malloc_par mp_ =
 {
@@ -1876,18 +1877,17 @@ static void malloc_init_state(mstate av)
   mbinptr bin;
 
   /* Establish circular links for normal bins */
-  for (i = 1; i < NBINS; ++i)
-    {
-      bin = bin_at (av, i);
-      bin->fd = bin->bk = bin;
-    }
+  for (i = 1; i < NBINS; ++i){
+    bin = bin_at(av, i);
+    bin->fd = bin->bk = bin;
+  }
 
 #if MORECORE_CONTIGUOUS
   if (av != &main_arena)
 #endif
   set_noncontiguous (av);
 
-  av->top = initial_top (av);
+  av->top = initial_top(av);
 }
 
 /* Other internal utilities operating on mstates */
@@ -1902,7 +1902,7 @@ static int   systrim(size_t, mstate);
    to free the thread cache (if it exists). */
 static void tcache_thread_shutdown (void);
 
-/* ------------------ Testing support ----------------------------------*/
+/* ------------------ Testing support ------------------ */
 
 static int perturb_byte;
 
@@ -1928,11 +1928,14 @@ static __always_inline void
 thp_init (void)
 {
   /* Initialize only once if DEFAULT_THP_PAGESIZE is defined.  */
-  if (DEFAULT_THP_PAGESIZE == 0 || mp_.thp_mode != malloc_thp_mode_not_supported)
+  if (
+    DEFAULT_THP_PAGESIZE == 0 || 
+    mp_.thp_mode != malloc_thp_mode_not_supported
+  )
     return;
 
-  /* Set thp_pagesize even if thp_mode is never.  This reduces frequency
-     of MORECORE () invocation.  */
+  /* Set thp_pagesize even if thp_mode is never.
+  This reduces frequency of MORECORE () invocation. */
   mp_.thp_mode = __malloc_thp_mode ();
   mp_.thp_pagesize = DEFAULT_THP_PAGESIZE;
 }
@@ -1942,21 +1945,25 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 {
 #ifdef MADV_HUGEPAGE
 
-  thp_init ();
+  thp_init();
 
-  /* Only use __madvise if the system is using 'madvise' mode and the size
-     is at least a huge page, otherwise the call is wasteful. */
-  if (mp_.thp_mode != malloc_thp_mode_madvise || size < mp_.thp_pagesize)
+  /* Only use __madvise if the system is using
+  'madvise' mode and the size is at least a huge
+  page, otherwise the call is wasteful. */
+  if (
+    mp_.thp_mode != malloc_thp_mode_madvise || 
+    size < mp_.thp_pagesize
+  )
     return;
 
-  /* Linux requires the input address to be page-aligned, and unaligned
-     inputs happens only for initial data segment.  */
-  if (__glibc_unlikely (!PTR_IS_ALIGNED (p, GLRO (dl_pagesize))))
-    {
-      void *q = PTR_ALIGN_UP (p, GLRO (dl_pagesize));
-      size -= PTR_DIFF (q, p);
-      p = q;
-    }
+  /* Linux requires the input address to be 
+  page-aligned, and unaligned inputs happens
+  only for initial data segment. */
+  if (__glibc_unlikely(!PTR_IS_ALIGNED(p, GLRO(dl_pagesize)))){
+    void *q = PTR_ALIGN_UP(p, GLRO(dl_pagesize));
+    size -= PTR_DIFF(q, p);
+    p = q;
+  }
 
   __madvise (p, size, MADV_HUGEPAGE);
 #endif
@@ -1965,15 +1972,14 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 /* ------------------- Support for multiple arenas -------------------- */
 #include "arena.c"
 
-/*
-   Debugging support
+/* Debugging support
 
-   These routines make a number of assertions about the states
-   of data structures that should be true at all times. If any
-   are not true, it's very likely that a user program has somehow
-   trashed memory. (It's also possible that there is a coding error
-   in malloc. In which case, please report it!)
- */
+  These routines make a number of assertions about the states
+  of data structures that should be true at all times. If any
+  are not true, it's very likely that a user program has
+  somehow trashed memory. (It's also possible that there is a
+  coding error in malloc. In which case, please report it!)
+*/
 
 #if !MALLOC_DEBUG
 
@@ -1991,150 +1997,133 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 # define check_malloced_chunk(A, P, N)   do_check_malloced_chunk (A, P, N)
 # define check_malloc_state(A)         do_check_malloc_state (A)
 
-/*
-   Properties of all chunks
- */
-
-static void
-do_check_chunk (mstate av, mchunkptr p)
+/* Properties of all chunks */
+static void do_check_chunk(mstate av, mchunkptr p)
 {
-  unsigned long sz = chunksize (p);
+  unsigned long sz = chunksize(p);
 
-  if (!chunk_is_mmapped (p))
-    {
-      /* min and max possible addresses assuming contiguous allocation */
-      char *max_address = (char *) (av->top) + chunksize (av->top);
-      char *min_address = max_address - av->system_mem;
+  if (!chunk_is_mmapped(p)){
+    /* min and max possible addresses assuming contiguous allocation */
+    char *max_address = (char *) (av->top) + chunksize (av->top);
+    char *min_address = max_address - av->system_mem;
 
-      /* Has legal address ... */
-      if (p != av->top)
-        {
-          if (contiguous (av))
-            {
-              assert (((char *) p) >= min_address);
-              assert (((char *) p + sz) <= ((char *) (av->top)));
-            }
-        }
-      else
-        {
-          /* top size is always at least MINSIZE */
-          assert ((unsigned long) (sz) >= MINSIZE);
-          /* top predecessor always marked inuse */
-          assert (prev_inuse (p));
-        }
+    /* Has legal address ... */
+    if (p != av->top){
+      if (contiguous (av)){
+        assert (((char *) p) >= min_address);
+        assert (((char *) p + sz) <= ((char *) (av->top)));
+      }
     }
-  else
-    {
-      /* chunk is page-aligned */
-      assert ((mmap_size (p) & (GLRO (dl_pagesize) - 1)) == 0);
-      /* mem is aligned */
-      assert (!misaligned_chunk (p));
+    else{
+      /* top size is always at least MINSIZE */
+      assert((unsigned long)(sz) >= MINSIZE);
+
+      /* top predecessor always marked inuse */
+      assert(prev_inuse(p));
     }
+  }
+  else{
+    /* chunk is page-aligned */
+    assert ((mmap_size(p) & (GLRO(dl_pagesize) - 1)) == 0);
+
+    /* mem is aligned */
+    assert (!misaligned_chunk(p));
+  }
 }
 
-/*
-   Properties of free chunks
- */
-
-static void
-do_check_free_chunk (mstate av, mchunkptr p)
+/* Properties of free chunks */
+static void do_check_free_chunk(mstate av, mchunkptr p)
 {
-  INTERNAL_SIZE_T sz = chunksize_nomask (p) & ~(PREV_INUSE | NON_MAIN_ARENA);
-  mchunkptr next = chunk_at_offset (p, sz);
+  INTERNAL_SIZE_T sz = chunksize_nomask(p) & ~(PREV_INUSE | NON_MAIN_ARENA);
+  mchunkptr next = chunk_at_offset(p, sz);
 
-  do_check_chunk (av, p);
+  do_check_chunk(av, p);
 
   /* Chunk must claim to be free ... */
-  assert (!inuse (p));
-  assert (!chunk_is_mmapped (p));
+  assert (!inuse(p));
+  assert (!chunk_is_mmapped(p));
 
   /* Unless a special marker, must have OK fields */
-  if ((unsigned long) (sz) >= MINSIZE)
-    {
-      assert ((sz & MALLOC_ALIGN_MASK) == 0);
-      assert (!misaligned_chunk (p));
-      /* ... matching footer field */
-      assert (prev_size (next_chunk (p)) == sz);
-      /* ... and is fully consolidated */
-      assert (prev_inuse (p));
-      assert (next == av->top || inuse (next));
+  if ((unsigned long) (sz) >= MINSIZE){
+    assert ((sz & MALLOC_ALIGN_MASK) == 0);
+    assert (!misaligned_chunk (p));
 
-      /* ... and has minimally sane links */
-      assert (p->fd->bk == p);
-      assert (p->bk->fd == p);
-    }
-  else /* markers are always of size SIZE_SZ */
+    /* ... matching footer field */
+    assert (prev_size (next_chunk (p)) == sz);
+
+    /* ... and is fully consolidated */
+    assert (prev_inuse (p));
+    assert (next == av->top || inuse (next));
+
+    /* ... and has minimally sane links */
+    assert (p->fd->bk == p);
+    assert (p->bk->fd == p);
+  }
+
+  /* markers are always of size SIZE_SZ */
+  else
     assert (sz == SIZE_SZ);
 }
 
-/*
-   Properties of inuse chunks
- */
-
-static void
-do_check_inuse_chunk (mstate av, mchunkptr p)
+/* Properties of inuse chunks */
+static void do_check_inuse_chunk(mstate av, mchunkptr p)
 {
   mchunkptr next;
 
-  do_check_chunk (av, p);
+  do_check_chunk(av, p);
 
-  if (chunk_is_mmapped (p))
+  if (chunk_is_mmapped(p))
     return; /* mmapped chunks have no next/prev */
 
   /* Check whether it claims to be in use ... */
-  assert (inuse (p));
+  assert(inuse(p));
 
-  next = next_chunk (p);
+  next = next_chunk(p);
 
   /* ... and is surrounded by OK chunks.
      Since more things can be checked with free chunks than inuse ones,
      if an inuse chunk borders them and debug is on, it's worth doing them.
    */
-  if (!prev_inuse (p))
-    {
-      /* Note that we cannot even look at prev unless it is not inuse */
-      mchunkptr prv = prev_chunk (p);
-      assert (next_chunk (prv) == p);
-      do_check_free_chunk (av, prv);
-    }
+  if (!prev_inuse(p)){
+    /* Note that we cannot even look at prev unless it is not inuse */
+    mchunkptr prv = prev_chunk(p);
+    assert (next_chunk(prv) == p);
+    do_check_free_chunk(av, prv);
+  }
 
-  if (next == av->top)
-    {
-      assert (prev_inuse (next));
-      assert (chunksize (next) >= MINSIZE);
-    }
-  else if (!inuse (next))
-    do_check_free_chunk (av, next);
+  if (next == av->top){
+    assert(prev_inuse(next));
+    assert(chunksize(next) >= MINSIZE);
+  }
+  else if (!inuse(next))
+    do_check_free_chunk(av, next);
 }
 
-/*
-   Properties of chunks at the point they are malloced
- */
-
-static void
-do_check_malloced_chunk (mstate av, mchunkptr p, INTERNAL_SIZE_T s)
+/* Properties of chunks at the point they are malloced */
+static void do_check_malloced_chunk(mstate av, mchunkptr p, INTERNAL_SIZE_T s)
 {
-  INTERNAL_SIZE_T sz = chunksize_nomask (p) & ~(PREV_INUSE | NON_MAIN_ARENA);
+  INTERNAL_SIZE_T sz = chunksize_nomask(p) & ~(PREV_INUSE | NON_MAIN_ARENA);
 
-  if (!chunk_is_mmapped (p))
-    {
-      assert (av == arena_for_chunk (p));
-      if (chunk_main_arena (p))
-        assert (av == &main_arena);
-      else
-        assert (av != &main_arena);
-    }
+  if (!chunk_is_mmapped(p)){
+    assert(av == arena_for_chunk(p));
+    if (chunk_main_arena(p))
+      assert(av == &main_arena);
+    else
+      assert(av != &main_arena);
+  }
 
-  do_check_inuse_chunk (av, p);
+  do_check_inuse_chunkav, p);
 
   /* Legal size ... */
   assert ((sz & MALLOC_ALIGN_MASK) == 0);
   assert ((unsigned long) (sz) >= MINSIZE);
+
   /* ... and alignment */
   assert (!misaligned_chunk (p));
+
   /* chunk is less than MINSIZE more than request */
-  assert ((long) (sz) - (long) (s) >= 0);
-  assert ((long) (sz) - (long) (s + MINSIZE) < 0);
+  assert ((long)(sz) - (long)(s) >= 0);
+  assert ((long)(sz) - (long)(s + MINSIZE) < 0);
 
   /*
      ... plus,  must obey implementation invariant that prev_inuse is
@@ -2145,12 +2134,11 @@ do_check_malloced_chunk (mstate av, mchunkptr p, INTERNAL_SIZE_T s)
      chunk.
    */
 
-  assert (prev_inuse (p));
+  assert(prev_inuse(p));
 }
 
 
-/*
-   Properties of malloc_state.
+/* Properties of malloc_state.
 
    This may be useful for debugging malloc, as well as detecting user
    programmer errors that somehow write into malloc_state.
@@ -2158,10 +2146,9 @@ do_check_malloced_chunk (mstate av, mchunkptr p, INTERNAL_SIZE_T s)
    If you are extending or experimenting with this malloc, you can
    probably figure out how to hack this routine to print out or
    display chunk addresses, sizes, bins, and other instrumentation.
- */
+*/
 
-static void
-do_check_malloc_state (mstate av)
+static void do_check_malloc_state(mstate av)
 {
   int i;
   mchunkptr p;
@@ -2276,59 +2263,72 @@ do_check_malloc_state (mstate av)
    larger than CHUNK_HDR_SZ.  Add CHUNK_HDR_SZ at the end so that mmap
    chunks have the same layout as regular chunks.  */
 
-static void *
-sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags)
-{
+static void* sysmalloc_mmap(
+  INTERNAL_SIZE_T nb, 
+  size_t pagesize, 
+  int extra_flags
+){
   size_t padding = MALLOC_ALIGNMENT - CHUNK_HDR_SZ;
-  size_t size = ALIGN_UP (nb + padding + CHUNK_HDR_SZ, pagesize);
+  size_t size = ALIGN_UP(nb + padding + CHUNK_HDR_SZ, pagesize);
 
-  char *mm = (char *) MMAP (NULL, size,
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    extra_flags);
+  char *mm = (char*)MMAP(
+    NULL, 
+    size,
+		mtag_mmap_flags | PROT_READ | PROT_WRITE,
+		extra_flags
+  );
   if (mm == MAP_FAILED)
     return mm;
   if (extra_flags == 0)
-    madvise_thp (mm, size);
+    madvise_thp(mm, size);
 
-  __set_vma_name (mm, size, " glibc: malloc");
+  __set_vma_name(mm, size, " glibc: malloc");
 
-  mchunkptr p = mmap_set_chunk ((uintptr_t)mm, size, padding, extra_flags != 0);
+  mchunkptr p = mmap_set_chunk(
+    (uintptr_t)mm, 
+    size, 
+    padding, 
+    extra_flags != 0
+  );
 
   /* update statistics */
-  int new = atomic_fetch_add_relaxed (&mp_.n_mmaps, 1) + 1;
-  atomic_max (&mp_.max_n_mmaps, new);
+  int new = atomic_fetch_add_relaxed(&mp_.n_mmaps, 1) + 1;
+  atomic_max(&mp_.max_n_mmaps, new);
 
   unsigned long sum;
   sum = atomic_fetch_add_relaxed (&mp_.mmapped_mem, size) + size;
   atomic_max (&mp_.max_mmapped_mem, sum);
 
-  check_chunk (NULL, p);
+  check_chunk(NULL, p);
 
-  return chunk2mem (p);
+  return chunk2mem(p);
 }
 
-/*
-   Allocate memory using mmap() based on S and NB requested size, aligning to
-   PAGESIZE if required.  The EXTRA_FLAGS is used on mmap() call.  If the call
-   succeeds S is updated with the allocated size.  This is used as a fallback
-   if MORECORE fails.
- */
-static void *
-sysmalloc_mmap_fallback (size_t *s, size_t size, size_t minsize,
-			  size_t pagesize, int extra_flags)
-{
-  size = ALIGN_UP (size, pagesize);
+/* Allocate memory using mmap() based on S and NB requested size,
+   aligning to PAGESIZE if required. The EXTRA_FLAGS is used on 
+   mmap() call. If the call succeeds S is updated with the allocated 
+   size. This is used as a fallback if MORECORE fails. */
+static void* sysmalloc_mmap_fallback(
+  size_t *s, 
+  size_t size, 
+  size_t minsize,
+  size_t pagesize, 
+  int extra_flags
+){
+  size = ALIGN_UP(size, pagesize);
 
   /* If we are relying on mmap as backup, then use larger units */
   if (size < minsize)
     size = minsize;
 
-  char *mbrk = (char *) (MMAP (NULL, size,
-			       mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			       extra_flags));
+  char *mbrk = (char*)MMAP(
+    NULL, 
+    size,
+    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+    extra_flags
+  );
   if (mbrk == MAP_FAILED)
     return MAP_FAILED;
-
   if (extra_flags == 0)
     madvise_thp (mbrk, size);
 
@@ -2336,14 +2336,13 @@ sysmalloc_mmap_fallback (size_t *s, size_t size, size_t minsize,
   return mbrk;
 }
 
-static void *
-sysmalloc (INTERNAL_SIZE_T nb, mstate av)
+static void* sysmalloc(INTERNAL_SIZE_T nb, mstate av)
 {
   mchunkptr old_top;              /* incoming value of av->top */
   INTERNAL_SIZE_T old_size;       /* its size */
   char *old_end;                  /* its end address */
 
-  size_t size;                      /* arg to first MORECORE or mmap call */
+  size_t size;                    /* arg to first MORECORE or mmap call */
   char *brk;                      /* return value from MORECORE */
 
   long correction;                /* arg to 2nd MORECORE call */
@@ -2362,31 +2361,35 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
   bool tried_mmap = false;
 
 
-  /*
-     If have mmap, and the request size meets the mmap threshold, and
-     the system supports mmap, and there are few enough currently
-     allocated mmapped regions, try to directly map this request
-     rather than expanding top.
-   */
+  /* If have mmap, and the request size meets the mmap threshold,
+  and the system supports mmap, and there are few enough currently
+  allocated mmapped regions, try to directly map this request
+  rather than expanding top. */
 
-  if (av == NULL
-      || ((unsigned long) (nb) >= (unsigned long) (mp_.mmap_threshold)
-	  && (mp_.n_mmaps < mp_.n_mmaps_max)))
+  if (
+    av == NULL ||
+    (
+      (unsigned long)(nb) >= (unsigned long)(mp_.mmap_threshold) &&
+      (mp_.n_mmaps < mp_.n_mmaps_max)
+    )
+  ){
+    char *mm;
+    if (mp_.hp_pagesize > 0 && nb >= mp_.hp_pagesize)
+
     {
-      char *mm;
-      if (mp_.hp_pagesize > 0 && nb >= mp_.hp_pagesize)
-	{
-	  /* There is no need to issue the THP madvise call if Huge Pages are
-	     used directly.  */
-	  mm = sysmalloc_mmap (nb, mp_.hp_pagesize, mp_.hp_flags);
-	  if (mm != MAP_FAILED)
-	    return mm;
-	}
-      mm = sysmalloc_mmap (nb, pagesize, 0);
+      /* There is no need to issue the THP madvise call 
+      if Huge Pages are used directly. */
+      mm = sysmalloc_mmap (nb, mp_.hp_pagesize, mp_.hp_flags);
       if (mm != MAP_FAILED)
-	return mm;
-      tried_mmap = true;
-    }
+  	    return mm;
+	  }
+
+    mm = sysmalloc_mmap(nb, pagesize, 0);
+    if (mm != MAP_FAILED)
+    	return mm;
+
+    tried_mmap = true;
+  }
 
   /* There are no usable arenas and mmap also failed.  */
   if (av == NULL)
