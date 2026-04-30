@@ -44,10 +44,13 @@ A complete description of glibc-malloc
   - [The Questions](#the-questions)
   - [Smallbin Size Classes](#smallbin-size-classes)
   - [Largebin Spacing](#largebin-spacing)
-  - [The Actual Largebins](#the-actual-largebins)
+  - [Bin Indexing](#bin-indexing)
     - [Macro #1: bin\_index(sz)](#macro-1-bin_indexsz)
     - [Macro #2: in\_smallbin\_range(sz)](#macro-2-in_smallbin_rangesz)
     - [Macro #3: smallbin\_index(sz)](#macro-3-smallbin_indexsz)
+    - [Macro #4: largebin\_index(sz)](#macro-4-largebin_indexsz)
+    - [The Naming Issue](#the-naming-issue)
+    - [Macro #5: bin\_at(M, i)](#macro-5-bin_atm-i)
 ---
 
 # Introduction To Userspace Memory Allocators
@@ -1268,7 +1271,7 @@ Let's talk about spacing in largebins.
 
 ## Largebin Spacing
 
-This is the annotation about spacing among largebins.
+There is no LARGEBIN_WIDTH macro as there are different class of largebins. The largebin widths are exposed via the bin pyramid, which is again applicable to 32-bit only.
 ```
 Larger bins are approximately logarithmically spaced.
 
@@ -1281,90 +1284,117 @@ Larger bins are approximately logarithmically spaced.
      1 bin  of size    what's left
 ```
 
-The biggest problem with this pyramid is the sloppy use of the term "size.
+The biggest problem with this pyramid is the incorrect framing of bins. We have recently explored smallbin spacing. So, ***are there 64 bins of 8 bytes, or 64 bins of size (SMALLBIN_WIDTH\*i) bytes, where i belongs to [0, 63] ?***
 
-We have recently studied the smallbin size classes. Do we have "64 bins of size SMALLBIN_WIDTH bytes" or we have "64 bins with size classes separated by SMALLBIN_WIDTH bytes, where the first valid size class is for MINSIZE bytes and the last size class is for (MIN_LARGE_SIZE-SMALLBIN_WIDTH) bytes". We know the answer.
+It is not "*n* bins of size *x* bytes". It is "*n* bins of width *x* bytes". A better version could be:
+```
+    64 bins of width          8
+    32 bins of width         64
+    16 bins of width        512
+     8 bins of width       4096
+     4 bins of width      32768
+     2 bins of width     262144
+     1 bin  of width    what's left
+```
 
-A better version could be:
+But we can do a lot better, with this table.
 
 | Bin Classification | Count of bins | BIN_WIDTH (in bytes) | BIN_WIDTH (pow-of-2) |
 | :----------------- | :------------ | :------------------- | :------------------- |
 | Unsorted bin       | 1             | NA                   | NA                   |
-| Smallbin           | 64            | 8                    | pow(2, 3)            |
-| Largebin Cat1      | 32            | 64                   | pow(2, 6)            |
-| Largebin Cat2      | 16            | 512                  | pow(2, 9)            |
-| Largebin Cat3      | 8             | 4096                 | pow(2, 12)           |
-| Largebin Cat4      | 4             | 32768                | pow(2, 15)           |
-| Largebin Cat5      | 2             | 262144               | pow(2, 18)           |
+| Smallbin           | 64            | 8                    | 2<sup>3</sup>        |
+| Largebin Cat1      | 32            | 64                   | 2<sup>6</sup>        |
+| Largebin Cat2      | 16            | 512                  | 2<sup>9</sup>        |
+| Largebin Cat3      | 8             | 4096                 | 2<sup>12</sup>       |
+| Largebin Cat4      | 4             | 32768                | 2<sup>15</sup>       |
+| Largebin Cat5      | 2             | 262144               | 2<sup>18</sup>       |
 | Largebin Cat6      | 1             | what's left          | ?                    |
 
 ---
 
-**Note: BIN_WIDTH is not a valid macro.**
+**Note: BIN_WIDTH is not a macro defined in malloc.c. I am using it because it captures the idea elegantly.**
 
-The annotation refers to the bin classes being logarithmically spaced, not the individual bins within a class. Within each class, bins are linearly spaced by a fixed BIN_WIDTH. Across classes, BIN_WIDTH itself scales by 2<sup>3</sup>, which is what gives the logarithmic spacing.
+But as per our analysis of smallbins, it is incorrect and we have not done the largebin analysis yet. So, take it as a blueprint for a better pyramid. We will correct it as we gather more information.
 
-But this is only applicable to 32-bit. To make the 64-bit version, we need to know how the width scales in 64-bit. There is no annotation directly acknowledging this, but we do have a weird looking annotation.
+---
+
+The pyramid in the annotation is only applicable to 32-bit. While we can generate the 64-bit one, the problem is largebin spacing.
+  - The annotation above it says that *"largebins are approximately logarithmically spaced"*. If we look at the last column, we will notice that the width of bins in each category is scaling upwards by 3 bits. That's what log-spacing is.
+  - We can also notice an inconsistency here. The annotation says that "the largebins are log-spaced", but in reality, **it is the bin classes which are logarithmically spaced, not the individual bins within a class.** Within each class, bins are linearly spaced by a fixed BIN_WIDTH. Across classes, BIN_WIDTH itself scales by 2<sup>3</sup>.
+  - To make this comprehensible, the term "bin classification" was introduced.
+  - All this is applicable to 32-bit. On 64-bit, BIN_WIDTH would scale by 2<sup>4</sup>, which is where the problem is.
+
+This is probably the most weird annotation I have seen.
 ```
 // XXX It remains to be seen whether it is good to keep the widths of
 // XXX the buckets the same or whether it should be scaled by a factor
 // XXX of two as well.
 ```
-  - First of all, don't assume XXX is a placeholder for something.
-  - Second, this annotation is where the tension is visible. It is questioning whether BIN_WIDTH should scale with the architecture.
+  - **Note: Don't assume XXX is a placeholder for something.**
 
-If BIN_WIDTH scaled with the architecture, we would get, 2<sup>4<sup>, 2<sup>8<sup>, 2<sup>12<sup>, 2<sup>16<sup>, 2<sup>20<sup>, and 2<sup>24<sup>. These are 16, 256, 4096, 65536, 1048576 (1 MiB), and 16777216 (16 MiB).
+This annotation is questioning whether BIN_WIDTH should scale with the architecture. If BIN_WIDTH scaled with the architecture, we would have the following widths (in bytes): 2<sup>4</sup> (16), 2<sup>8</sup> (256), 2<sup>12</sup> (4096), 2<sup>16</sup> (65536), 2<sup>20</sup> (1,048,576: 1 MiB), and 2<sup>24</sup> (16,777,216: 16 MiB).
 
-If you read this annotation,
+Now look at this annotation.
 ```
 The bins top out around 1MB because we expect to service
 large requests via mmap.
 ```
-.... you will find that we want to service extremely large requests via mmap. If BIN_WIDTH scaled with the architecture, our definition of extremely large would require a serious thought. We might have to change our strategy completely. Since there is no clarity about whether BIN_WIDTH is scaling with the architecture, or we are restricting to pow(2, 3) only, we will assume the latter.
 
-Based on this, the bin pyramid for 64-bit should be:
+Again, it is applicable to 32-bit only. It acknowledges a design decision that *we wish to service "large" requests via mmap*. If BIN_WIDTH scaled with the architecture, our definition of "large" would change too.
 
-| Bin Classification | Count of bins | BIN_WIDTH (in bytes) | BIN_WIDTH (pow-of-2) |
-| :----------------- | :------------ | :------------------- | :------------------- |
-| Unsorted bin       | 1             | NA                   | NA                   |
-| Smallbin           | 64            | 16                   | pow(2, 4)            |
-| Largebin Cat1      | 32            | 64                   | pow(2, 6)            |
-| Largebin Cat2      | 16            | 512                  | pow(2, 9)            |
-| Largebin Cat3      | 8             | 4096                 | pow(2, 12)           |
-| Largebin Cat4      | 4             | 32768                | pow(2, 15)           |
-| Largebin Cat5      | 2             | 262144               | pow(2, 18)           |
-| Largebin Cat6      | 1             | what's left          | ?                    |
+Right now, the bins in 32-bit top out around 1 MiB. When the width scales with the architecture, the largest bin width on 64-bit is 16 MiB, and there are 2 bins in this category, and a "what's left" bin comes after it. 
+
+The question is, are we OK to service requests in multiple MiB with sbrk? Is it worthwhile or comes with significant performance issues? Based on this, the largebin spacing annotation can be interpreted in two ways.
+  1. The acknowledgement might refer to the fact that the decision was thought but never made. Maybe the author studied the implications and maybe benchmarked the implementation too and they were not satisfied with the results, so it was never included and the largebins on 64-bit scale as they scale on 32-bit. The question is worth asking that, "if the decision didn't make sense, and such scaling was not implemented, why the author chose to left this annotation? why not, simply say that the largebins on 64-bit scale with 2<sup>3</sup> only for XYZ reason"?
+  2. But the track record of annotations is not that great. So taking them at face value is not generating much confidence. It might be the case that it was implemented but as it has been with many annotations, it was never updated/removed.
 
 ---
 
-It is time to find the actual largebins, the last interesting thing in the bookkeeping section. Make sure you enjoy it, because, I am not sure if anything as interesting as this piece exist in the whole glibc-malloc.
+So, scale the 64-bit largebins with 2<sup>3</sup> or 2<sup>4</sup> ? Since the annotations don't answer this, we will look at the implementation.
 
-## The Actual Largebins
-
-The smallbins situation is already clear.
-```
-smallbins ∈ [MINSIZE, (MIN_LARGE_SIZE-SMALLBIN_WIDTH)]
-```
-
-On 64-bit, the last smallbin is for size class 1008 and the first largebin of the first category would be starting at 1024, spanning across 64 bytes.
-
-There are four macros that we have to understand to form the actual list of largebins.
+largebin_index_64(sz) is the macro for generating indices for largebins on 64-bit.
 ```c
-bin_index(sz)
-in_smallbin_range(sz)
-smallbin_index(sz)
-largebin_index(sz)
+#define largebin_index_64(sz)   ( \
+  (((unsigned long)(sz) >>  6) <= 48) ?  48 + ((unsigned long)(sz) >> 6)  : \
+  (((unsigned long)(sz) >>  9) <= 20) ?  91 + ((unsigned long)(sz) >> 9)  : \
+  (((unsigned long)(sz) >> 12) <= 10) ? 110 + ((unsigned long)(sz) >> 12) : \
+  (((unsigned long)(sz) >> 15) <=  4) ? 119 + ((unsigned long)(sz) >> 15) : \
+  (((unsigned long)(sz) >> 18) <=  2) ? 124 + ((unsigned long)(sz) >> 18) : \
+  126 \
+)
 ```
 
-Although these macros are suffixed with `index`, they don't actually calculate an index; what they calculate is the bin number and that number is fed to `bin_at(M, i)` which gives the actual bin headers for a bin.
+Just by looking at the macro, we can say with surety that "the largebin width doesn't scale with the architecture". It remains 2<sup>3</sup> on 64-bit as well.
 
-In simple words, we have 128/127/126 bins and each bin has a number to identify it in the list. These bins are implemented as an array of bin headers. So, it is the bin header that truly gets an indexable value, not the bin itself.
+Even though we understand largebin spacing now, it is better to defer constructing the table until we explore the largebin situation completely.
 
-Let's talk about these macros.
+---
+
+Before we go on building the list of largebins on 64-bit, we have to understand how bin indexing works. This is where we will close a thread opened since part 1, which is, "the conclusion of part 1", how the fake node implementation is operationalized.
+
+## Bin Indexing
+
+We know that bins are implemented using circular doubly linked lists and to ensure efficiency in operations, a fake node implementation is used. ***Therefore, bin indexing is the process of mapping the correct bin for a size and calculating the address which can represent the fake node whose fd/bk overlap with the bin headers for that bin.***
+
+These macros are responsible for streamlining that process.
+```c
+#define bin_index(sz)
+#define in_smallbin_range(sz)
+
+#define smallbin_index(sz)
+
+#define largebin_index(sz)
+#define   largebin_index_32(sz)
+#define   largebin_index_32_big(sz)
+#define   largebin_index_64(sz)
+
+#define bin_at(M, i)
+```
 
 ### Macro #1: bin_index(sz)
+---
 
-This macro is a high level handler that takes a size and directs the request to the appropriate bin handler.
+This macro is a high level handler that takes a size and calls the appropriate bin handler.
 ```c
 #define bin_index(sz)    ( \
   in_smallbin_range(sz)    \
@@ -1373,11 +1403,15 @@ This macro is a high level handler that takes a size and directs the request to 
 )
 ```
 
-There is no sign of unsorted bin because, unsorted bin sits before the smallbin/largebin pathway. The allocator always starts with checking if there is anything in the unsorted bin that could be reused, for exactly the reasons we have already discussed.
+There is no mention of the unsorted bin as it has a dedicated macro.
+```c
+#define  unsorted_chunks(M)  bin_at(M, 1)
+```
 
 ### Macro #2: in_smallbin_range(sz)
+---
 
-This macro takes a size and checks whether it is valid smallbin size class. If it is, the request is directed to the appropriate smallbin handler, otherwise, it is considered a largebin appropriate size.
+This macro takes a size and checks whether it is a valid smallbin size class. Based on the result, the size is passed to the appropriate bin handler.
 ```c
 #define in_smallbin_range(sz)    ( \
   (unsigned long)(sz) < (unsigned long)(MIN_LARGE_SIZE) \
@@ -1385,8 +1419,9 @@ This macro takes a size and checks whether it is valid smallbin size class. If i
 ```
 
 ### Macro #3: smallbin_index(sz)
+---
 
-This macro handles smallbin number calculation.
+It is the handler for smallbins. It calculates the "index" of the bin corresponding to the size.
 ```c
 #define smallbin_index(sz)    ( \
   ( \
@@ -1394,5 +1429,87 @@ This macro handles smallbin number calculation.
     ? (((unsigned)(sz)) >> 4)  \
     : (((unsigned)(sz)) >> 3)  \
   ) + SMALLBIN_CORRECTION      \
+)
+```
+
+For 64-bit, we are right-shifting the size by 4, which is basically division by 2<sup>4</sup>. In case of 32-bit, we divide the size by 2<sup>3</sup>. If you notice, the macro is basically dividing the size by SMALLBIN_WIDTH and adding the correction factor.
+
+We can definitely simplify the macro this way:
+```c
+#define  smallbin_index(sz)  ((sz/SMALLBIN_WIDTH) + SMALLBIN_CORRECTION)
+```
+.... and the compiler will generate identical assembly for both at -O1 or -O2 as they are fundamentally the same thing. The reason former exist can be attributed to compiler limitations as discussed in the "preprocessing vs inlining" argument earlier.
+
+**Notes**:
+  1. As mentioned earlier, SMALLBIN_CORRECTION is 0 for 32-bit and 64-bit, and has utility in config #3 and we will discuss it there.
+  2. There is no dedicated macro or condition that evaluates the situation for config 3. We will discuss the mechanics of config 3 later.
+
+### Macro #4: largebin_index(sz)
+---
+
+This macro is a high level handler for the largebin index calculation. It delegates the calculation based on the config#, unlike smallbins, which have one single handler doing everything.
+```c
+#define largebin_index(sz)    (  \
+  (SIZE_SZ == 8)                 \
+  ? largebin_index_64(sz)        \
+  : (MALLOC_ALIGNMENT == 16)     \
+    ? largebin_index_32_big(sz)  \
+    : largebin_index_32(sz)      \
+)
+```
+
+SIZE_SZ=8 is for 64-bit, MALLOC_ALIGNMENT=16 catches the INTERNAL_SIZE_T=4 case (config #3) and the remaining one is for 32-bit. Let's start with `largebin_index_64`.
+
+### The Naming Issue
+---
+
+There is a naming issue in the bin_index macros. Their output is not an index value. Let's understand the situation.
+
+By index, we imply a value which can be subscripted (or indexed) in an array to find a specific element.
+
+Array subscripting is simply a syntactic sugar built over: `(base + i*scale)`. For example.
+```c
+int arr[100];
+// considering the width of int 4.
+```
+
+Suppose i=15. Take these two cases and answer what is the index here.
+  1. arr[i]
+  2. arr[(i\*4) + 4]
+
+I hope the answers is 15 and 64. Is it?
+  - arr[5] is (arr + 5*4).
+  - arr[(i\*4) + 4] is (arr + ( (i\*4)+4 )*4)
+
+***`i` is not an index. It is simply a variable participating in the calculation of the index value.***
+  - In the first case, `i` was used literally.
+  - In the second case, `i` underwent some arithmetic to compute the index.
+
+Now look at what these macros are generating. Take smallbin_index for example. The largest smallbin size class on 64-bit is for 1008 bytes. Right shift it by 4, we get 63. Since bins are implemented as headers, we have to undergo a calculation to access the correct headers.
+```c
+// 0-based indexing
+struct Node* fake_node = (Node*)((char*)(&listHeaders[i*2])-8);
+
+// 1-based indexing
+struct Node* fake_node = (Node*)((char*)(&listHeaders[(i-1)*2])-8);
+```
+
+The output of `smallbin_index` or `largebin_index_*` macros is "a bin number" which participates in the final index calculation performed by the `bin_at(M, i)` macro.
+```c
+typedef struct malloc_chunk *mbinptr;
+
+#define  bin_at(m, i)    (mbinptr) ( \
+  ((char*) &( (m)->bins[(i-1)*2] )) - offsetof(struct malloc_chunk, fd)  \
+)
+```
+
+And for this reason, "bin_number" is a more appropriate naming than "bin_index".
+
+### Macro #5: bin_at(M, i)
+
+It is the macro that operationalize the fake chunk implementation. It receives a bin number corresponding to a size and then calculates the appropriate bin for it.
+```c
+#define  bin_at(m, i)    (mbinptr) ( \
+  ((char*) &( (m)->bins[(i-1)*2] )) - offsetof(struct malloc_chunk, fd)  \
 )
 ```
