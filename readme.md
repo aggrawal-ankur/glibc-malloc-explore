@@ -108,6 +108,12 @@ The intent is to keep every conclusion traceable to either the implementation, a
 
 ---
 
+## Things I have not explored yet
+
+1. Safe Linking
+2. Concurrency
+3. Memory Tagging
+
 ## License
 
 The original glibc source files remain under their original license.
